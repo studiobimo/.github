@@ -1,0 +1,158 @@
+name: CI (Java/Gradle)
+
+# The toolchain-level build: set up Java and Gradle, run the tasks, summarise the
+# results and keep the artifacts. Repos call it from a thin wrapper and pass the
+# tasks they want, so a fix here lands everywhere at once.
+#
+# Nothing here reads a secret, so it is safe on pull requests from forks. The
+# Gradle cache is read-only anywhere but the default branch.
+
+on:
+  workflow_call:
+    inputs:
+      java-version:
+        description: JDK version. Ignored when java-version-file exists in the repo.
+        type: string
+        required: false
+        default: "25"
+      java-version-file:
+        description: File holding the JDK version, so one file stays the source of truth. Empty to disable.
+        type: string
+        required: false
+        default: .java-version
+      java-distribution:
+        description: JDK distribution understood by actions/setup-java.
+        type: string
+        required: false
+        default: temurin
+      gradle-tasks:
+        description: Gradle tasks to run, space separated.
+        type: string
+        required: false
+        default: build
+      gradle-args:
+        description: Extra arguments appended to the Gradle invocation.
+        type: string
+        required: false
+        default: ""
+      xvfb:
+        description: Run Gradle under a virtual display, for client GameTests and other windowed tests.
+        type: boolean
+        required: false
+        default: false
+      runs-on:
+        description: Runner label.
+        type: string
+        required: false
+        default: ubuntu-latest
+      timeout-minutes:
+        description: Give a long build room, but never let a hung one burn an hour.
+        type: number
+        required: false
+        default: 45
+      artifact-paths:
+        description: Multiline list of paths to upload. Empty uploads nothing.
+        type: string
+        required: false
+        default: ""
+      artifact-name:
+        description: Name of the uploaded artifact.
+        type: string
+        required: false
+        default: build-artifacts
+      upload-test-reports:
+        description: Upload the raw test and coverage reports when the build fails.
+        type: boolean
+        required: false
+        default: true
+
+permissions: {}
+
+jobs:
+  build:
+    name: ${{ inputs.gradle-tasks }}
+    runs-on: ${{ inputs.runs-on }}
+    timeout-minutes: ${{ inputs.timeout-minutes }}
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      # This repo at the commit of this very workflow, so the action and the
+      # summary script always match the version the caller pinned.
+      - name: Check out the shared CI pieces
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: studiobimo/.github
+          ref: ${{ github.job_workflow_sha }}
+          path: .studiobimo-ci
+          persist-credentials: false
+
+      # One file is the source of truth for the JDK version, shared with jenv,
+      # mise, asdf and Gradle's toolchain. The input is the fallback.
+      - name: Resolve the JDK version
+        id: java
+        env:
+          VERSION_FILE: ${{ inputs.java-version-file }}
+          FALLBACK: ${{ inputs.java-version }}
+        run: |
+          if [ -n "${VERSION_FILE}" ] && [ -f "${VERSION_FILE}" ]; then
+            version="$(tr -d '[:space:]' < "${VERSION_FILE}")"
+            echo "Using ${VERSION_FILE}: ${version}"
+          else
+            version="${FALLBACK}"
+            echo "Using the java-version input: ${version}"
+          fi
+          echo "version=${version}" >> "${GITHUB_OUTPUT}"
+
+      - uses: ./.studiobimo-ci/actions/setup-java-gradle # zizmor: ignore[self-repository]
+        with:
+          java-version: ${{ steps.java.outputs.version }}
+          java-distribution: ${{ inputs.java-distribution }}
+
+      - name: Install a virtual display
+        if: inputs.xvfb
+        run: sudo apt-get update && sudo apt-get install --no-install-recommends -y xvfb
+
+      - name: Gradle ${{ inputs.gradle-tasks }}
+        env:
+          TASKS: ${{ inputs.gradle-tasks }}
+          EXTRA: ${{ inputs.gradle-args }}
+          XVFB: ${{ inputs.xvfb }}
+        run: |
+          # Both inputs are argument lists, so they are split deliberately rather
+          # than passed as one quoted string.
+          read -ra tasks <<< "${TASKS}"
+          read -ra extra <<< "${EXTRA}"
+          if [ "${XVFB}" = "true" ]; then
+            xvfb-run -a ./gradlew "${tasks[@]}" --no-daemon --stacktrace "${extra[@]}"
+          else
+            ./gradlew "${tasks[@]}" --no-daemon --stacktrace "${extra[@]}"
+          fi
+
+      # Always: a failed build is exactly when the numbers are worth reading.
+      - name: Summarise tests and coverage
+        if: always()
+        run: python3 .studiobimo-ci/scripts/build-summary.py || true
+
+      - name: Upload build artifacts
+        if: always() && inputs.artifact-paths != ''
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: ${{ inputs.artifact-name }}
+          path: ${{ inputs.artifact-paths }}
+          if-no-files-found: ignore
+          retention-days: 14
+
+      - name: Upload test reports
+        if: failure() && inputs.upload-test-reports
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: ${{ inputs.artifact-name }}-reports
+          path: |
+            **/build/reports/**
+            **/build/test-results/**
+          if-no-files-found: ignore
+          retention-days: 14
