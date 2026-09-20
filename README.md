@@ -16,10 +16,11 @@ everywhere at once.
 
 ## Composite actions
 
-| Action                      | What it does                                   |
-| --------------------------- | ---------------------------------------------- |
-| `actions/setup-java-gradle` | Temurin JDK + Gradle with branch-aware caching |
-| `actions/setup-precommit`   | uv + pre-commit with a cached hook environment |
+| Action                      | What it does                                                    |
+| --------------------------- | --------------------------------------------------------------- |
+| `actions/setup-java-gradle` | Temurin JDK + Gradle with branch-aware caching                  |
+| `actions/setup-precommit`   | uv + pre-commit with a cached hook environment                  |
+| `actions/pr-checks`         | The PR title, branch, size and commit checks, for direct use    |
 
 ## Calling them
 
@@ -45,6 +46,10 @@ Secrets are passed explicitly. Nothing here uses `secrets: inherit`.
 
 Each workflow and action documents its own inputs: the workflows in their `workflow_call` block, the
 actions in a README beside them.
+
+A reusable workflow here checks this repository out at `github.job_workflow_sha` — its own commit —
+so the scripts and actions it runs always match the version the caller pinned, with no
+self-referential SHA to bump on every release.
 
 ## Conventions
 
