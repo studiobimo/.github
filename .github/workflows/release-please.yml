@@ -1,0 +1,75 @@
+name: Release Please
+
+# Keeps a release pull request open on the default branch, with the version bump
+# and the changelog worked out from Conventional Commits. Merging that PR tags
+# the commit and creates the GitHub Release; publish-mod.yml takes it from there.
+#
+# On 0.x, release-please treats `feat:` as a patch bump and only `feat!:` as a
+# minor one, so a pre-1.0 project does not sprint through minor versions. Set
+# bump-minor-pre-major in the config file to change that.
+
+on:
+  workflow_call:
+    inputs:
+      release-type:
+        description: release-please strategy. `simple` suits a repo whose version lives in a plain file.
+        type: string
+        required: false
+        default: simple
+      config-file:
+        description: Path to release-please-config.json.
+        type: string
+        required: false
+        default: release-please-config.json
+      manifest-file:
+        description: Path to .release-please-manifest.json.
+        type: string
+        required: false
+        default: .release-please-manifest.json
+      target-branch:
+        description: Branch to release from. Defaults to the repository's default branch.
+        type: string
+        required: false
+        default: ""
+    secrets:
+      token:
+        description: >-
+          Optional token for opening the release PR. A PR opened with the default
+          GITHUB_TOKEN does not trigger other workflows, so its CI never runs. Pass an
+          app token or PAT when the release PR has to be checked before merging.
+        required: false
+    outputs:
+      release-created:
+        description: "\"true\" when merging the release PR created a release."
+        value: ${{ jobs.release-please.outputs.release-created }}
+      tag-name:
+        description: Tag of the release that was just created, e.g. v0.1.0.
+        value: ${{ jobs.release-please.outputs.tag-name }}
+      version:
+        description: Version of the release that was just created, e.g. 0.1.0.
+        value: ${{ jobs.release-please.outputs.version }}
+
+permissions: {}
+
+jobs:
+  release-please:
+    name: Release PR
+    runs-on: ubuntu-latest
+    permissions:
+      # Writing the changelog, the tag and the release.
+      contents: write
+      # Opening and updating the release pull request.
+      pull-requests: write
+    outputs:
+      release-created: ${{ steps.release.outputs.release_created }}
+      tag-name: ${{ steps.release.outputs.tag_name }}
+      version: ${{ steps.release.outputs.version }}
+    steps:
+      - uses: googleapis/release-please-action@45996ed1f6d02564a971a2fa1b5860e934307cf7 # v5.0.0
+        id: release
+        with:
+          token: ${{ secrets.token || github.token }}
+          release-type: ${{ inputs.release-type }}
+          config-file: ${{ inputs.config-file }}
+          manifest-file: ${{ inputs.manifest-file }}
+          target-branch: ${{ inputs.target-branch || github.event.repository.default_branch }}

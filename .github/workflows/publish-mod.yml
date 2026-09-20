@@ -1,0 +1,139 @@
+name: Publish mod
+
+# Builds a released Minecraft mod, attests where the jars came from, and
+# publishes them to Modrinth, CurseForge and the GitHub Release.
+#
+# THIS JOB HOLDS SECRETS AND RUNS THE REPOSITORY'S BUILD, which means it
+# executes whatever the repository's Gradle files say. Only ever call it for a
+# commit already on the default branch or an existing release -- never from a
+# pull_request trigger, where a fork could rewrite the build and read the
+# publishing tokens. The caller guards this; see the tallyhopper release
+# workflow for the shape.
+
+on:
+  workflow_call:
+    inputs:
+      tag-name:
+        description: Tag being published, e.g. v0.1.0. Checked out so the build matches the release exactly.
+        type: string
+        required: true
+      java-version:
+        description: JDK version. Ignored when java-version-file exists in the repo.
+        type: string
+        required: false
+        default: "25"
+      java-version-file:
+        description: File holding the JDK version. Empty to disable.
+        type: string
+        required: false
+        default: .java-version
+      build-task:
+        description: Gradle task producing the jars.
+        type: string
+        required: false
+        default: build
+      publish-task:
+        description: Gradle task publishing them. mod-publish-plugin provides publishMods.
+        type: string
+        required: false
+        default: publishMods
+      jar-paths:
+        description: Multiline globs naming the jars to attest and keep. Must match what gets published.
+        type: string
+        required: false
+        default: |
+          fabric/build/libs/*.jar
+          neoforge/build/libs/*.jar
+      dry-run:
+        description: Build and attest, but do not publish anywhere. Use it to rehearse a release.
+        type: boolean
+        required: false
+        default: false
+    secrets:
+      modrinth-token:
+        description: Modrinth API token. Passed explicitly by the caller; never inherited.
+        required: false
+      curseforge-token:
+        description: CurseForge API token. Passed explicitly by the caller; never inherited.
+        required: false
+
+permissions: {}
+
+jobs:
+  publish:
+    name: Publish ${{ inputs.tag-name }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    permissions:
+      # Uploading the jars onto the GitHub Release.
+      contents: write
+      # Signing the provenance attestation with a short-lived OIDC identity.
+      id-token: write
+      # Recording the attestation against the repository.
+      attestations: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ inputs.tag-name }}
+          persist-credentials: false
+
+      - name: Check out the shared CI pieces
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: studiobimo/.github
+          ref: ${{ github.job_workflow_sha }}
+          path: .studiobimo-ci
+          persist-credentials: false
+
+      - name: Resolve the JDK version
+        id: java
+        env:
+          VERSION_FILE: ${{ inputs.java-version-file }}
+          FALLBACK: ${{ inputs.java-version }}
+        run: |
+          if [ -n "${VERSION_FILE}" ] && [ -f "${VERSION_FILE}" ]; then
+            version="$(tr -d '[:space:]' < "${VERSION_FILE}")"
+          else
+            version="${FALLBACK}"
+          fi
+          echo "version=${version}" >> "${GITHUB_OUTPUT}"
+
+      - uses: ./.studiobimo-ci/actions/setup-java-gradle # zizmor: ignore[self-repository]
+        with:
+          java-version: ${{ steps.java.outputs.version }}
+          # A release must not depend on, or write to, a cache built elsewhere.
+          cache-read-only: "true"
+
+      - name: Build the jars
+        env:
+          TASK: ${{ inputs.build-task }}
+        run: |
+          read -ra task <<< "${TASK}"
+          ./gradlew "${task[@]}" --no-daemon --stacktrace
+
+      # Before publishing, so a failed attestation never leaves unattested jars
+      # on a download page.
+      - name: Attest where the jars came from
+        uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
+        with:
+          subject-path: ${{ inputs.jar-paths }}
+
+      - name: Publish to Modrinth, CurseForge and the GitHub Release
+        if: ${{ !inputs.dry-run }}
+        env:
+          TASK: ${{ inputs.publish-task }}
+          MODRINTH_TOKEN: ${{ secrets.modrinth-token }}
+          CURSEFORGE_TOKEN: ${{ secrets.curseforge-token }}
+          GITHUB_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ inputs.tag-name }}
+        run: |
+          read -ra task <<< "${TASK}"
+          ./gradlew "${task[@]}" --no-daemon --stacktrace
+
+      - name: Keep the jars with the run
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: jars-${{ inputs.tag-name }}
+          path: ${{ inputs.jar-paths }}
+          if-no-files-found: error
+          retention-days: 90
