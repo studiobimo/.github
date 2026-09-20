@@ -54,19 +54,33 @@ jobs:
           GITHUB_TOKEN: ${{ github.token }}
         run: pnpm exec semantic-release
 
+      # Moved through the API rather than `git push`. This repository is private and
+      # the checkout above keeps persist-credentials: false, so the local clone holds
+      # no credentials at all -- any plain git network command fails with "could not
+      # read Username". (semantic-release is unaffected: it builds its own authenticated
+      # remote.) The API needs no git auth, and no token ever ends up in a URL.
+      #
+      # No fetch either: checkout used fetch-depth: 0, and the tag semantic-release
+      # just cut is already local.
       - name: Move the floating major tag
         env:
-          GITHUB_TOKEN: ${{ github.token }}
+          GH_TOKEN: ${{ github.token }}
         run: |
-          git fetch --tags --force
           latest="$(git tag -l 'v[0-9]*.[0-9]*.[0-9]*' --sort=-v:refname | head -n1)"
           if [ -z "${latest}" ]; then
             echo "No release tag yet; nothing to point a major tag at."
             exit 0
           fi
           major="${latest%%.*}"
-          echo "Pointing ${major} at ${latest}"
-          git tag -f "${major}" "${latest}"
-          git push --force \
-            "https://x-access-token:${GITHUB_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" \
-            "refs/tags/${major}"
+          sha="$(git rev-list -n1 "${latest}")"
+          echo "Pointing ${major} at ${latest} (${sha})"
+
+          # PATCH fails if the ref does not exist yet, so create it the first time.
+          if gh api "repos/${GITHUB_REPOSITORY}/git/ref/tags/${major}" >/dev/null 2>&1; then
+            gh api -X PATCH "repos/${GITHUB_REPOSITORY}/git/refs/tags/${major}" \
+              -f "sha=${sha}" -F force=true >/dev/null
+          else
+            gh api -X POST "repos/${GITHUB_REPOSITORY}/git/refs" \
+              -f "ref=refs/tags/${major}" -f "sha=${sha}" >/dev/null
+          fi
+          echo "${major} now points at ${sha}"
