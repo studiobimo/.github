@@ -1,0 +1,8 @@
+{
+  "name": "CI — Java/Gradle",
+  "description": "Runs the centralized ci-java-gradle, ci-workflows and ci-gitleaks reusables on every pull request. Trim the jobs this repo does not need.",
+  "creator": "studiobimo",
+  "iconName": "checklist",
+  "categories": ["Continuous integration", "Java"],
+  "filePatterns": ["gradlew$", "build.gradle.*$", "settings.gradle.*$"]
+}

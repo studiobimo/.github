@@ -75,6 +75,24 @@ pinned. No second checkout, and no self-referential SHA to bump on every release
 - `persist-credentials: false` on every checkout.
 - No secret is ever read in a workflow that also runs untrusted code from a fork.
 
+## Workflow templates
+
+`workflow-templates/` holds starters offered in the "New workflow" UI of other studiobimo
+repositories. Unlike a reusable workflow, a template is **copied into the consuming repo** and
+owned by it from then on, so it uses `$default-branch` for branch refs and stays editable.
+
+That copy is also why the pinning rule differs there. A template runs in the consumer's repo,
+where `studiobimo/.github` is a foreign repository: `$/` would resolve to _their_ repo, and a
+`@v1` tag on a composite action would be rejected by `sha_pinning_required`. Reusable-workflow
+refs stay `@v1`; any action ref in a template must be a full SHA.
+`sh .devtools/check-action-pins.sh` enforces exactly this split.
+
+Two caveats. Templates are not audited by zizmor — it only collects files under
+`.github/workflows/` — so `check-action-pins` and review are the whole safety net for them.
+And because this repository is private, whether the templates actually appear in another repo's
+Actions tab is something to confirm rather than assume; if they do not, they still work as
+copy-paste starters.
+
 ## Working on this repo
 
 ```sh

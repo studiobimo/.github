@@ -1,0 +1,31 @@
+name: PR checks
+
+# Starter: enforces the org's pull-request rules -- a Conventional Commits title, a
+# Conventional Branch name, a size limit, and Conventional Commits on every commit in the
+# branch -- via the centralized ci-pr reusable.
+#
+# The title matters beyond tidiness: repos here squash-merge, so it becomes the commit
+# subject on the default branch, which release automation reads to compute the next version.
+#
+# Unlike a title-only check, this one needs the code to count changed files and read the
+# commit range, so it runs on `pull_request` and never on `pull_request_target`. Do not
+# change that trigger: `pull_request_target` combined with a checkout of the PR's head is
+# how a fork gets to run its own code against your secrets.
+
+on:
+  pull_request:
+    types: [opened, edited, synchronize, reopened]
+
+permissions: {}
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  pr-checks:
+    permissions:
+      contents: read
+    uses: studiobimo/.github/.github/workflows/ci-pr.yml@v1
+    with:
+      max-files: 20
