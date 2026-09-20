@@ -15,4 +15,4 @@ rules:
     config:
       policies:
         studiobimo/*: ref-pin
-        "*": hash-pin
+        '*': hash-pin

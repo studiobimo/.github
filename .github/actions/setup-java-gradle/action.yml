@@ -5,7 +5,7 @@ inputs:
   java-version:
     description: JDK version. Prefer passing the contents of a .java-version file so one file stays the source of truth.
     required: false
-    default: "25"
+    default: '25'
   java-distribution:
     description: JDK distribution understood by actions/setup-java.
     required: false
@@ -13,13 +13,13 @@ inputs:
   validate-wrapper:
     description: Check gradle/wrapper/gradle-wrapper.jar against the known-good checksums.
     required: false
-    default: "true"
+    default: 'true'
   cache-read-only:
     description: >-
       Leave unset to write the Gradle cache only on the default branch, which is what you want:
       a pull request reads the cache but cannot poison it. Set "false" to force writes.
     required: false
-    default: ""
+    default: ''
 
 runs:
   using: composite

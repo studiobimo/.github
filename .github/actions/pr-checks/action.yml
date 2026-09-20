@@ -17,11 +17,11 @@ inputs:
   max-files:
     description: Most files a single pull request may change.
     required: false
-    default: "20"
+    default: '20'
   check-commits:
     description: Also require every commit in the branch to be a Conventional Commit.
     required: false
-    default: "true"
+    default: 'true'
 
 runs:
   using: composite
@@ -33,19 +33,19 @@ runs:
     - shell: bash
       env:
         TITLE: ${{ inputs.title }}
-      run: "${GITHUB_ACTION_PATH}/../../../.devtools/check-conventional-commit.sh --label 'pull request title' \"${TITLE}\""
+      run: '${GITHUB_ACTION_PATH}/../../../.devtools/check-conventional-commit.sh --label ''pull request title'' "${TITLE}"'
 
     - shell: bash
       env:
         BRANCH: ${{ inputs.branch }}
-      run: "${GITHUB_ACTION_PATH}/../../../.devtools/check-branch-name.sh \"${BRANCH}\""
+      run: '${GITHUB_ACTION_PATH}/../../../.devtools/check-branch-name.sh "${BRANCH}"'
 
     - shell: bash
       env:
         BASE: ${{ inputs.base-sha }}
         HEAD: ${{ inputs.head-sha }}
         MAX: ${{ inputs.max-files }}
-      run: "${GITHUB_ACTION_PATH}/../../../.devtools/check-pr-size.sh --base \"${BASE}\" --head \"${HEAD}\" --max \"${MAX}\""
+      run: '${GITHUB_ACTION_PATH}/../../../.devtools/check-pr-size.sh --base "${BASE}" --head "${HEAD}" --max "${MAX}"'
 
     - if: inputs.check-commits == 'true'
       shell: bash

@@ -14,7 +14,7 @@ on:
         description: JDK version. Ignored when java-version-file exists in the repo.
         type: string
         required: false
-        default: "25"
+        default: '25'
       java-version-file:
         description: File holding the JDK version, so one file stays the source of truth. Empty to disable.
         type: string
@@ -34,7 +34,7 @@ on:
         description: Extra arguments appended to the Gradle invocation.
         type: string
         required: false
-        default: ""
+        default: ''
       xvfb:
         description: Run Gradle under a virtual display, for client GameTests and other windowed tests.
         type: boolean
@@ -54,7 +54,7 @@ on:
         description: Multiline list of paths to upload. Empty uploads nothing.
         type: string
         required: false
-        default: ""
+        default: ''
       artifact-name:
         description: Name of the uploaded artifact.
         type: string

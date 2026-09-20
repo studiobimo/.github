@@ -5,7 +5,7 @@ inputs:
   root:
     description: Directory to scan for build/reports and build/test-results. Defaults to the workspace.
     required: false
-    default: "."
+    default: '.'
 
 runs:
   using: composite
