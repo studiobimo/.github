@@ -1,0 +1,3 @@
+# Everything here runs in other repositories' CI, and consumers ride a floating `v1`
+# tag — so a mistake ships to every repo at once. One reviewer on all of it.
+* @davidmoralesz

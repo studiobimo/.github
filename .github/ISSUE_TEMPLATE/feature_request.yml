@@ -1,0 +1,42 @@
+name: Feature request
+description: A new reusable workflow, action, or an input on an existing one.
+labels: [enhancement]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Shared CI earns its keep by being used in more than one place. Saying which repos
+        need this, and how they differ, is what decides whether it should be a reusable
+        workflow, an input on an existing one, or a workflow template.
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: What are you trying to do
+      description: The problem, not the solution — the shape often changes once it is shared.
+    validations:
+      required: true
+
+  - type: input
+    id: repos
+    attributes:
+      label: Which repos need it
+      placeholder: tallyhopper
+    validations:
+      required: true
+
+  - type: dropdown
+    id: kind
+    attributes:
+      label: What shape should it take
+      description: >-
+        A reusable workflow when the logic is identical everywhere; a template when it
+        genuinely varies per repo and is owned after copying.
+      options:
+        - New reusable workflow
+        - New input on an existing workflow
+        - New composite action
+        - Workflow template
+        - Not sure
+    validations:
+      required: true

@@ -1,0 +1,48 @@
+name: Bug report
+description: Something in a shared workflow or action behaves wrongly.
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        This repo holds CI that runs in *other* repositories. The most useful bug report
+        names the consuming repo and links a failed run — that is usually faster to read
+        than any description.
+
+  - type: input
+    id: component
+    attributes:
+      label: Which workflow or action
+      description: e.g. `ci-java-gradle.yml`, `.github/actions/pr-checks`
+      placeholder: ci-java-gradle.yml
+    validations:
+      required: true
+
+  - type: input
+    id: ref
+    attributes:
+      label: Ref it was called at
+      description: The `@v1`, tag or SHA the caller pinned.
+      placeholder: v1
+    validations:
+      required: true
+
+  - type: input
+    id: run-url
+    attributes:
+      label: Link to a failed run
+      placeholder: https://github.com/studiobimo/<repo>/actions/runs/<id>
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: What you expected, and what happened instead
+    validations:
+      required: true
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: Relevant log output
+      description: Paste the failing step. Redact anything secret — this is rendered verbatim.
+      render: text
