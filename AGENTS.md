@@ -15,22 +15,23 @@ Consumers: `studiobimo/tallyhopper` (Minecraft mod, Java/Gradle) is the first.
 
 - **Pinning.** Three rules, split by who controls the tag. `sha_pinning_required` is **on** for
   this repo (`gh api repos/studiobimo/.github/actions/permissions`), and it exempts
-  reusable-workflow refs and local `./` / `$/` refs, but *not* composite actions.
+  reusable-workflow refs and local `./` / `$/` refs, but _not_ composite actions.
 
-  | Ref | Form |
-  | --- | --- |
-  | Third-party action | full 40-char SHA + `# vX.Y.Z` |
-  | Our workflow, called by a consumer | `@v1` |
-  | Our action, from our own workflow | `$/.github/actions/<name>` |
+  | Ref                                    | Form                          |
+  | -------------------------------------- | ----------------------------- |
+  | Third-party action                     | full 40-char SHA + `# vX.Y.Z` |
+  | Our workflow, called by a consumer     | `@v1`                         |
+  | Our action, from our own workflow      | `$/.github/actions/<name>`    |
   | Our action, from `workflow-templates/` | full 40-char SHA + `# vX.Y.Z` |
 
   The last row is the trap: a template is **copied into the consumer's repo** and runs there, so
-  `$/` would resolve to *their* repo and a `@v1` tag would be rejected by the SHA policy. Run
+  `$/` would resolve to _their_ repo and a `@v1` tag would be rejected by the SHA policy. Run
   `sh .devtools/check-action-pins.sh` — `self-lint` does too, because same-repo dogfooding can't
   catch a bad ref (GitHub's same-repo exemption hides it here and it breaks only consumers).
 
   Resolve a tag to its commit with `gh api repos/<owner>/<repo>/git/ref/tags/<tag>`,
   dereferencing an annotated tag object.
+
 - **Permissions.** `permissions: {}` at workflow level. Each job requests the minimum it needs, and a
   job that reads a secret never runs untrusted code from a fork.
 - **Checkout.** `persist-credentials: false` everywhere.

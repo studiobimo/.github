@@ -21,7 +21,7 @@ on:
         description: JDK version. Ignored when java-version-file exists in the repo.
         type: string
         required: false
-        default: "25"
+        default: '25'
       java-version-file:
         description: File holding the JDK version. Empty to disable.
         type: string
@@ -95,7 +95,7 @@ jobs:
         with:
           java-version: ${{ steps.java.outputs.version }}
           # A release must not depend on, or write to, a cache built elsewhere.
-          cache-read-only: "true"
+          cache-read-only: 'true'
 
       - name: Build the jars
         env:

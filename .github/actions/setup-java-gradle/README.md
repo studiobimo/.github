@@ -9,7 +9,7 @@ Temurin JDK plus Gradle, with wrapper validation and branch-aware caching.
 | `java-version`      | `25`      | JDK version. Prefer passing a `.java-version` file's contents.                       |
 | `java-distribution` | `temurin` | Any distribution `actions/setup-java` understands.                                   |
 | `validate-wrapper`  | `true`    | Check `gradle-wrapper.jar` against the known-good checksums, before Gradle runs.     |
-| `cache-read-only`   | *(auto)*  | Unset means read-only everywhere except the default branch. `"false"` forces writes. |
+| `cache-read-only`   | _(auto)_  | Unset means read-only everywhere except the default branch. `"false"` forces writes. |
 
 No outputs.
 
