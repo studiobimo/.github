@@ -1,0 +1,61 @@
+name: self-lint
+
+# Dogfooding caller: runs the ci-workflows library workflow (actionlint, zizmor,
+# shellcheck) against this repo's own source, which is the strongest proof it works
+# before a consumer pins @v1. Adds the checks that are specific to this repo and are
+# not part of the exported library.
+
+on:
+  pull_request:
+  workflow_dispatch:
+
+permissions: {}
+
+concurrency:
+  group: self-lint-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  # Dependabot only ever bumps a pinned SHA or a devDependency, and it vets what it
+  # opens; running the full lint suite on those adds latency without adding signal.
+  workflows:
+    if: ${{ !startsWith(github.head_ref, 'dependabot/') }}
+    permissions:
+      contents: read
+    # zizmor prefers `$/` over `./`, because a workspace-relative ref can load
+    # something a previous step cloned at runtime. That risk is real for a step-level
+    # action ref -- it is why the actions above moved to `$/` -- but not for a
+    # job-level reusable-workflow call, which GitHub resolves when the run is queued,
+    # never from the workspace. `./` buys something concrete in exchange: actionlint
+    # validates a local call against the callee's declarations (it catches an input
+    # name that does not exist, and lists the ones that do), while `$/` it cannot
+    # parse at all, so the call would go unchecked. Keeping the validation.
+    uses: ./.github/workflows/ci-workflows.yml # zizmor: ignore[self-repository]
+
+  repo-checks:
+    if: ${{ !startsWith(github.head_ref, 'dependabot/') }}
+    name: Pins and formatting
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      # This is the one check CI cannot infer from a green run. Our self-* workflows
+      # are same-repo, and GitHub exempts same-repo action refs from the SHA-pinning
+      # policy -- so a first-party ref pinned the wrong way passes here and fails in
+      # every consumer. The script closes that blind spot.
+      - name: Check first-party action pins
+        run: sh .devtools/check-action-pins.sh
+
+      - name: Enable pnpm via corepack
+        run: corepack enable
+
+      - name: Install the toolchain
+        run: pnpm install --frozen-lockfile
+
+      - name: Check formatting
+        run: pnpm run format:check

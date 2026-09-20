@@ -1,0 +1,72 @@
+name: release
+
+# This repo's own release, and the only thing that writes a tag here.
+#
+# On every push to main, semantic-release reads the Conventional Commit history and,
+# if there is a releasable change, computes the next vX.Y.Z, creates the tag and a
+# GitHub Release. Release notes live on the Release, so no CHANGELOG.md is committed
+# back and there is no bot-commit loop.
+#
+# A second step then moves the floating vMAJOR tag onto that release. That tag is the
+# ref consumers pin -- studiobimo/.github/.github/workflows/<name>.yml@v1 -- so moving
+# it is what makes a fix reach every repo at once. semantic-release does not maintain
+# major tags on its own.
+#
+# `release` is deliberately not `self-*`: the prefix marks a dogfooding caller of a
+# reusable, and this is neither.
+
+on:
+  push:
+    branches: [main]
+
+permissions: {}
+
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+jobs:
+  release:
+    name: Tag and release
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      # Creating the tag, the GitHub Release, and moving the floating major tag.
+      contents: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          # semantic-release works out the next version from the full history and tags.
+          fetch-depth: 0
+          # Still false, even though the step below pushes a tag. The token is passed to
+          # that one git command explicitly instead of being written into .git/config
+          # where every later step -- including any dependency's -- could read it.
+          persist-credentials: false
+
+      - name: Enable pnpm via corepack
+        run: corepack enable
+
+      - name: Install the toolchain
+        run: pnpm install --frozen-lockfile
+
+      - name: Run semantic-release
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: pnpm exec semantic-release
+
+      - name: Move the floating major tag
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: |
+          git fetch --tags --force
+          latest="$(git tag -l 'v[0-9]*.[0-9]*.[0-9]*' --sort=-v:refname | head -n1)"
+          if [ -z "${latest}" ]; then
+            echo "No release tag yet; nothing to point a major tag at."
+            exit 0
+          fi
+          major="${latest%%.*}"
+          echo "Pointing ${major} at ${latest}"
+          git tag -f "${major}" "${latest}"
+          git push --force \
+            "https://x-access-token:${GITHUB_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" \
+            "refs/tags/${major}"

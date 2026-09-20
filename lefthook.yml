@@ -32,9 +32,11 @@ pre-commit:
         || echo "actionlint not installed; skipping (see .devtools/install-hooks.sh)"
 
     # Workflows and composite actions both: zizmor audits action.yml too, and this
-    # repo's whole output is those two file kinds.
+    # repo's whole output is those two file kinds. The glob is `.github/**` rather
+    # than `.github/{workflows,actions}/**` because the latter silently misses files
+    # sitting directly in .github/workflows/ -- i.e. every workflow in the repo.
     zizmor:
-      glob: '.github/{workflows,actions}/**/*.{yml,yaml}'
+      glob: '.github/**/*.{yml,yaml}'
       run: >
         command -v zizmor >/dev/null 2>&1
         && zizmor --no-progress {staged_files}

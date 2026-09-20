@@ -47,10 +47,13 @@ Consumers: `studiobimo/tallyhopper` (Minecraft mod, Java/Gradle) is the first.
 
 ## Testing a change
 
-A reusable workflow cannot be tested from inside this repo alone. Either:
+Most of it is covered from inside this repo: the `self-*` workflows call each `ci-*` reusable by
+local path, so a pull request here runs the library against its own source.
 
-1. point a consumer repo's wrapper at your branch SHA and open a draft PR there; or
-2. add a `workflow_dispatch` smoke-test caller under `.github/workflows/selftest-*.yml`.
+What that cannot cover is anything that only differs cross-repo — above all whether a `$/` ref
+resolves to this repository rather than the caller's, and whether a first-party action ref is
+pinned in a form a consumer will accept. For those, point a consumer repo's wrapper at your branch
+SHA and open a draft PR there.
 
 Say in the PR which one you did. "It should work" is not a test result.
 
