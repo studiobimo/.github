@@ -1,0 +1,34 @@
+name: self-pr
+
+# Dogfooding caller: runs the ci-pr library workflow on this repo's own pull
+# requests, by local path so it always exercises the version on the branch.
+#
+# This repo squash-merges, so the PR title becomes the commit subject on main --
+# which semantic-release reads to compute the next version (see release.yml). That
+# makes this a release gate, not just history hygiene.
+
+on:
+  pull_request:
+    types: [opened, edited, synchronize, reopened]
+
+permissions: {}
+
+concurrency:
+  group: self-pr-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  pr-checks:
+    # A called workflow can never hold more than its caller, so the caller has to
+    # grant what it needs. `permissions: {}` above keeps every other job at nothing.
+    permissions:
+      contents: read
+    # zizmor prefers `$/` over `./`, because a workspace-relative ref can load
+    # something a previous step cloned at runtime. That risk is real for a step-level
+    # action ref -- it is why the actions above moved to `$/` -- but not for a
+    # job-level reusable-workflow call, which GitHub resolves when the run is queued,
+    # never from the workspace. `./` buys something concrete in exchange: actionlint
+    # validates a local call against the callee's declarations (it catches an input
+    # name that does not exist, and lists the ones that do), while `$/` it cannot
+    # parse at all, so the call would go unchecked. Keeping the validation.
+    uses: ./.github/workflows/ci-pr.yml # zizmor: ignore[self-repository]

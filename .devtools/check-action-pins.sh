@@ -73,9 +73,11 @@ report "composite-action ref(s) in .github/workflows/ should use the self-reposi
 # called workflow is the CALLER's checkout -- the bug `$/` exists to remove. Local
 # reusable-WORKFLOW calls (uses: ./.github/workflows/<name>.yml) are a different thing
 # and entirely correct: that is how this repo dogfoods its own library, so they are
-# excluded by their .yml/.yaml suffix.
+# excluded by their .yml/.yaml suffix -- allowing for a trailing `# comment`, which
+# those lines carry.
 # shellcheck disable=SC2086
-bad_rel="$(scan 'uses:[[:space:]]*\./' $workflows | grep -vE '\.ya?ml[[:space:]]*$' || true)"
+bad_rel="$(scan 'uses:[[:space:]]*\./' $workflows \
+  | grep -vE '\.ya?ml([[:space:]]*#.*)?[[:space:]]*$' || true)"
 report "workspace-relative action ref(s) in .github/workflows/ resolve against the CALLER's
   checkout, not this repo:
   want: \$/.github/actions/<name>" "$bad_rel"

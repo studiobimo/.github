@@ -17,7 +17,8 @@ everywhere at once.
 
 Every `ci-*` file is `on: workflow_call` — library code, not something that runs on this repo's
 own pull requests. The `self-*` files are this repo's thin callers of them, which is how the
-library is proven before a consumer pins `@v1`.
+library is proven before a consumer pins `@v1`. `release.yml` is neither: it is this repo's own
+release, and the only thing here that writes a tag.
 
 ## Composite actions
 
