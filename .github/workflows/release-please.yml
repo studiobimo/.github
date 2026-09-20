@@ -1,0 +1,120 @@
+name: Release Please
+
+# Cuts a consumer repository's releases from its Conventional Commit history.
+#
+# release-please keeps a standing "chore(main): release X.Y.Z" pull request on the
+# default branch, rewriting it as commits land. Merging that PR is the act of
+# releasing: the action then creates the tag, the GitHub Release and the changelog
+# entry. Nothing releases until a human merges, which is the whole point -- every
+# push to main is a candidate, no push is a release.
+#
+# This is the counterpart to publish-mod.yml, not a replacement for it. This one
+# decides *that* a release happened and what it is called; publish-mod.yml builds
+# and ships the artifacts for it. Chain them in one workflow -- see
+# workflow-templates/release-mod.yml -- because a tag created here with GITHUB_TOKEN
+# deliberately does NOT trigger a separate `on: push: tags` workflow. Wiring the
+# publish step to this workflow's outputs is what closes that gap.
+#
+# No checkout: release-please works entirely over the GitHub API, so the runner never
+# holds a clone and no credential is ever written to a .git/config.
+#
+# This repo releases itself with semantic-release (see release.yml), so there is no
+# `self-*` caller to dogfood this one -- the two tools would fight over the same tags.
+# Test a change by pointing a consumer's wrapper at your branch SHA; see AGENTS.md.
+
+on:
+  workflow_call:
+    inputs:
+      config-file:
+        description: release-please config. Holds the release-type, changelog sections and any extra-files to version-stamp.
+        type: string
+        required: false
+        default: release-please-config.json
+      manifest-file:
+        description: File tracking the current version per package. release-please rewrites it as part of the release commit.
+        type: string
+        required: false
+        default: .release-please-manifest.json
+      target-branch:
+        description: Branch to release from. Empty lets release-please detect the repository's default branch.
+        type: string
+        required: false
+        default: ''
+      skip-github-release:
+        description: Groom the release pull request but never tag. Use it to rehearse the changelog before trusting the automation.
+        type: boolean
+        required: false
+        default: false
+    outputs:
+      release-created:
+        description: The string 'true' when this run tagged a release. Gate a publish job on it.
+        value: ${{ jobs.release-please.outputs.release-created }}
+      tag-name:
+        description: Tag just created, e.g. v0.1.0. Empty unless release-created is 'true'.
+        value: ${{ jobs.release-please.outputs.tag-name }}
+      version:
+        description: Version just released, without the leading v. Empty unless release-created is 'true'.
+        value: ${{ jobs.release-please.outputs.version }}
+    secrets:
+      release-token:
+        description: >-
+          Optional app or personal token used instead of GITHUB_TOKEN. Worth passing for one
+          reason: a pull request opened by GITHUB_TOKEN does not trigger other workflows, so
+          the release PR arrives with no CI on it. A separate token makes the repo's normal
+          checks run against the release before anyone merges it. Passed explicitly; never inherited.
+        required: false
+
+permissions: {}
+
+jobs:
+  release-please:
+    name: Release please
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      # Creating the tag, the GitHub Release and the release commit.
+      contents: write
+      # Opening and grooming the release pull request.
+      pull-requests: write
+    # Two releases racing would tag the same commit twice, so a run in flight is
+    # always allowed to finish rather than being cancelled by the next push.
+    concurrency:
+      group: release-please-${{ github.repository }}-${{ inputs.target-branch }}
+      cancel-in-progress: false
+    outputs:
+      release-created: ${{ steps.release.outputs.release_created }}
+      tag-name: ${{ steps.release.outputs.tag_name }}
+      version: ${{ steps.release.outputs.version }}
+    steps:
+      - name: Run release-please
+        id: release
+        uses: googleapis/release-please-action@45996ed1f6d02564a971a2fa1b5860e934307cf7 # v5.0.0
+        with:
+          token: ${{ secrets.release-token || github.token }}
+          config-file: ${{ inputs.config-file }}
+          manifest-file: ${{ inputs.manifest-file }}
+          target-branch: ${{ inputs.target-branch }}
+          skip-github-release: ${{ inputs.skip-github-release }}
+
+      - name: Summarise what happened
+        env:
+          CREATED: ${{ steps.release.outputs.release_created }}
+          TAG: ${{ steps.release.outputs.tag_name }}
+          PRS: ${{ steps.release.outputs.prs_created }}
+        run: |
+          {
+            if [ "${CREATED}" = "true" ]; then
+              echo "### Released \`${TAG}\`"
+              echo
+              echo "The tag and GitHub Release exist. A publish job gated on"
+              echo "\`release-created\` runs next."
+            elif [ "${PRS}" = "true" ]; then
+              echo "### Release pull request updated"
+              echo
+              echo "Merge it to cut the release."
+            else
+              echo "### Nothing to release"
+              echo
+              echo "No releasable Conventional Commits since the last tag."
+            fi
+          } >> "${GITHUB_STEP_SUMMARY}"
