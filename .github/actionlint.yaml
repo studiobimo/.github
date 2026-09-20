@@ -1,0 +1,10 @@
+# github.job_workflow_sha is real and documented -- "for a job using a reusable
+# workflow, the commit SHA for the reusable workflow file" -- but actionlint
+# 1.7.12 ships an older github-context schema that does not list it. The
+# alternative is a self-referential SHA in `uses:` that has to be bumped every
+# release, which is worse. Drop this ignore when actionlint learns the property.
+# https://docs.github.com/en/actions/reference/workflows-and-actions/contexts
+paths:
+  .github/workflows/pr-checks.yml:
+    ignore:
+      - 'property "job_workflow_sha" is not defined'

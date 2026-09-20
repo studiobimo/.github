@@ -7,19 +7,19 @@ everywhere at once.
 
 ## Reusable workflows
 
-| Workflow                            | What it does                                                              |
-| ----------------------------------- | ------------------------------------------------------------------------- |
-| `.github/workflows/pr-checks.yml`   | Conventional PR title and branch name, PR size limit, commitlint           |
-| `.github/workflows/ci-java-gradle.yml` | Java toolchain, Gradle build, test reports and artifacts                |
-| `.github/workflows/release-please.yml` | Keeps a release PR open; tags and releases on merge                     |
-| `.github/workflows/publish-mod.yml` | Builds, attests and publishes a Minecraft mod to Modrinth, CurseForge and GitHub |
+| Workflow                               | What it does                                                                     |
+| -------------------------------------- | -------------------------------------------------------------------------------- |
+| `.github/workflows/pr-checks.yml`      | Conventional PR title and branch name, PR size limit, commitlint                 |
+| `.github/workflows/ci-java-gradle.yml` | Java toolchain, Gradle build, test reports and artifacts                         |
+| `.github/workflows/release-please.yml` | Keeps a release PR open; tags and releases on merge                              |
+| `.github/workflows/publish-mod.yml`    | Builds, attests and publishes a Minecraft mod to Modrinth, CurseForge and GitHub |
 
 ## Composite actions
 
-| Action                       | What it does                                    |
-| ---------------------------- | ----------------------------------------------- |
-| `actions/setup-java-gradle`  | Temurin JDK + Gradle with branch-aware caching  |
-| `actions/setup-precommit`    | uv + pre-commit with a cached hook environment  |
+| Action                      | What it does                                   |
+| --------------------------- | ---------------------------------------------- |
+| `actions/setup-java-gradle` | Temurin JDK + Gradle with branch-aware caching |
+| `actions/setup-precommit`   | uv + pre-commit with a cached hook environment |
 
 ## Calling them
 
