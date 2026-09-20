@@ -39,6 +39,9 @@ Consumers: `studiobimo/tallyhopper` (Minecraft mod, Java/Gradle) is the first.
 - **Commits:** [Conventional Commits 1.0.0](https://www.conventionalcommits.org/en/v1.0.0/).
   Scopes: `actions`, `workflows`, `devtools`, `templates`, `docs`, `deps`.
 - **Branches:** [Conventional Branch](https://conventionalbranch.org/), e.g. `feat/publish-mod`.
+- **Templates.** `workflow-templates/` is copied into consumers, not called by them, so it is
+  the one place the SHA rule bites: `$/` there would resolve to _their_ repo. zizmor does not
+  audit these files at all, so `check-action-pins` and review are the only net.
 - **PR size:** at most 20 changed files. Split bigger work with `gh stack`.
 - **Naming.** `ci-*` is library code (`on: workflow_call`), called by consumers at `@v1`.
   `self-*` is this repo's own caller of one, invoked by local path

@@ -1,0 +1,7 @@
+{
+  "name": "PR checks",
+  "description": "Conventional Commits title, Conventional Branch name, a 20-file size limit, and Conventional Commits on every commit in the branch.",
+  "creator": "studiobimo",
+  "iconName": "git-pull-request",
+  "categories": ["Automation"]
+}

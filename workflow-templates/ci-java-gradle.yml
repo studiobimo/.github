@@ -1,0 +1,42 @@
+name: CI
+
+# Starter: the per-pull-request checks for a Java/Gradle repo, each a thin caller of a
+# centralized reusable. Copied into your repo and owned by it from then on -- edit freely.
+#
+# Drop the `workflows` job if this repo has no workflows of its own worth linting, and
+# adjust gradle-tasks to whatever your build calls its check target.
+
+on:
+  push:
+    branches: [$default-branch]
+  pull_request:
+  merge_group:
+
+permissions: {}
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  check:
+    # A called workflow can never hold more than its caller, so the caller has to grant
+    # what it needs. `permissions: {}` above keeps every other job at nothing.
+    permissions:
+      contents: read
+    uses: studiobimo/.github/.github/workflows/ci-java-gradle.yml@v1
+    with:
+      gradle-tasks: check
+      artifact-paths: |
+        fabric/build/libs/*.jar
+        neoforge/build/libs/*.jar
+
+  workflows:
+    permissions:
+      contents: read
+    uses: studiobimo/.github/.github/workflows/ci-workflows.yml@v1
+
+  secrets-scan:
+    permissions:
+      contents: read
+    uses: studiobimo/.github/.github/workflows/ci-gitleaks.yml@v1
