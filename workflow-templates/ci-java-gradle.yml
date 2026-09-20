@@ -10,6 +10,24 @@ on:
   push:
     branches: [$default-branch]
   pull_request:
+    # A Gradle build is the expensive thing in this file, and a docs-only change
+    # cannot affect it. `paths-ignore` rather than `paths` so it fails safe: anything
+    # not listed here still runs the full suite.
+    #
+    # TWO THINGS TO KNOW BEFORE EDITING THIS LIST.
+    #
+    # 1. It skips the WHOLE workflow, including the secret scan. A secret pasted into
+    #    a markdown file would not be caught until the push to $default-branch after
+    #    merge. If you want it caught pre-merge, move the `secrets-scan` job into its
+    #    own workflow file and leave that one unfiltered.
+    # 2. A skipped job reports no status at all. That is harmless today, but the moment
+    #    `check` is marked a REQUIRED check, every PR that skips it sits on
+    #    "Expected -- waiting for status" and can never merge. At that point either drop
+    #    this filter or add a job that always succeeds under the same name.
+    paths-ignore:
+      - '**/*.md'
+      - 'docs/**'
+      - 'LICENSE'
   merge_group:
 
 permissions: {}
