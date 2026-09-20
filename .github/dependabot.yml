@@ -1,0 +1,42 @@
+version: 2
+
+updates:
+  # Keeps the third-party actions current across this repo's workflows AND the composite
+  # actions it exports, which pin actions of their own. `directory: /` covers
+  # .github/workflows/; the glob adds each .github/actions/<name>/action.yml. Everything
+  # here is SHA-pinned with a `# vX.Y.Z` comment, which Dependabot reads and updates in
+  # place -- the comment is load-bearing, not decoration.
+  #
+  # Grouped into one weekly PR: self-lint skips dependabot/* branches, so a wide bump is
+  # cheap, and one PR beats six.
+  - package-ecosystem: github-actions
+    directories:
+      - /
+      - /.github/actions/*
+    schedule:
+      interval: weekly
+    # Do not propose a release published minutes ago. A compromised or withdrawn
+    # version is usually caught within days, and without a cooldown Dependabot would
+    # open the PR inside that window -- on a repo whose output every other repo runs.
+    cooldown:
+      default-days: 7
+    commit-message:
+      prefix: chore(deps)
+    groups:
+      github-actions:
+        patterns:
+          - '*'
+
+  # The Node toolchain: commitlint, prettier, lefthook, semantic-release.
+  - package-ecosystem: npm
+    directory: /
+    schedule:
+      interval: weekly
+    cooldown:
+      default-days: 7
+    commit-message:
+      prefix: chore(deps)
+    groups:
+      npm:
+        patterns:
+          - '*'

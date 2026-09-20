@@ -1,0 +1,8 @@
+blank_issues_enabled: true
+contact_links:
+  - name: Conventions and non-negotiables
+    url: https://github.com/studiobimo/.github/blob/main/AGENTS.md
+    about: Pinning, permissions, commit and branch rules before you open a pull request.
+  - name: How to call these workflows
+    url: https://github.com/studiobimo/.github/blob/main/README.md
+    about: The @v1 call shape and each workflow's inputs.
