@@ -14,6 +14,16 @@ if [[ -z "${branch}" ]]; then
     exit 0
 fi
 
+# Bot branches are not ours to name. Dependabot's format is fixed --
+# dependabot/<ecosystem>/<group>-<hash>, with underscores and an extra path
+# segment -- and there is no setting to change it, so every dependency PR would
+# fail this check forever and the check would be the thing that gets disabled.
+# Nothing is lost: the title and commits a bot writes are Conventional, and the
+# title is what becomes the squash commit.
+case "${branch}" in
+    dependabot/* | renovate/*) exit 0 ;;
+esac
+
 types='feature|feat|bugfix|fix|hotfix|release|chore|ai|claude|codex|copilot|cursor'
 segment='[a-z0-9]+(\.[a-z0-9]+)*'
 pattern="^(main|master|develop|(${types})/${segment}(-${segment})*)$"
