@@ -1,0 +1,18 @@
+# Pinning policy, split by who controls the tag.
+#
+# Third-party actions are hash-pinned: a tag there can be moved under us, and
+# Dependabot bumps the SHA in place from the `# vX.Y.Z` comment.
+#
+# Our own refs ride the floating `v1` tag. GitHub's `sha_pinning_required` policy --
+# already on for this repo -- exempts reusable-workflow refs, and the moving tag is
+# how a release reaches consumers at all. Composite actions are NOT exempt, but the
+# ones we reference from our own workflows use `$/`, which is a self-repository ref
+# rather than a foreign tag. Templates under workflow-templates/ are the exception:
+# they are copied into the consumer's repo and run there, so their action refs must
+# be SHA-pinned -- .devtools/check-action-pins.sh enforces that separately.
+rules:
+  unpinned-uses:
+    config:
+      policies:
+        studiobimo/*: ref-pin
+        "*": hash-pin

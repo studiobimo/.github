@@ -1,0 +1,22 @@
+name: Build summary
+description: Writes a JUnit and JaCoCo summary from Gradle's own reports into the job summary.
+
+inputs:
+  root:
+    description: Directory to scan for build/reports and build/test-results. Defaults to the workspace.
+    required: false
+    default: "."
+
+runs:
+  using: composite
+  steps:
+    # GITHUB_ACTION_PATH is this action's directory inside a checkout of the repo it
+    # lives in, and the runner unpacks the whole repo -- so .devtools/ is already on
+    # disk three levels up, with no second checkout.
+    #
+    # A summary is a nicety, never a reason to fail a build that otherwise passed, so
+    # the script's exit status is deliberately swallowed.
+    - shell: bash
+      env:
+        ROOT: ${{ inputs.root }}
+      run: python3 "${GITHUB_ACTION_PATH}/../../../.devtools/build-summary.py" "${ROOT}" || true

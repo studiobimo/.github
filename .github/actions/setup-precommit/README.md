@@ -15,7 +15,7 @@ No outputs.
 ## Usage
 
 ```yaml
-- uses: studiobimo/.github/actions/setup-precommit@<full-sha> # v1.0.0
+- uses: studiobimo/.github/.github/actions/setup-precommit@<full-sha> # v1.0.0
 - run: uv run --project .devtools pre-commit run --all-files
 ```
 

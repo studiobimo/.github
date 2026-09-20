@@ -80,16 +80,6 @@ jobs:
         with:
           persist-credentials: false
 
-      # This repo at the commit of this very workflow, so the action and the
-      # summary script always match the version the caller pinned.
-      - name: Check out the shared CI pieces
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          repository: studiobimo/.github
-          ref: ${{ github.job_workflow_sha }}
-          path: .studiobimo-ci
-          persist-credentials: false
-
       # One file is the source of truth for the JDK version, shared with jenv,
       # mise, asdf and Gradle's toolchain. The input is the fallback.
       - name: Resolve the JDK version
@@ -107,7 +97,10 @@ jobs:
           fi
           echo "version=${version}" >> "${GITHUB_OUTPUT}"
 
-      - uses: ./.studiobimo-ci/actions/setup-java-gradle # zizmor: ignore[self-repository]
+      # `$/` is GitHub's self-repository form: it resolves to THIS repo at the exact
+      # commit this workflow is running, so the action always matches the version the
+      # caller pinned -- no second checkout, no self-referential SHA.
+      - uses: $/.github/actions/setup-java-gradle
         with:
           java-version: ${{ steps.java.outputs.version }}
           java-distribution: ${{ inputs.java-distribution }}
@@ -135,7 +128,7 @@ jobs:
       # Always: a failed build is exactly when the numbers are worth reading.
       - name: Summarise tests and coverage
         if: always()
-        run: python3 .studiobimo-ci/scripts/build-summary.py || true
+        uses: $/.github/actions/build-summary
 
       - name: Upload build artifacts
         if: always() && inputs.artifact-paths != ''

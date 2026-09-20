@@ -16,7 +16,7 @@ No outputs.
 ## Usage
 
 ```yaml
-- uses: studiobimo/.github/actions/setup-java-gradle@<full-sha> # v1.0.0
+- uses: studiobimo/.github/.github/actions/setup-java-gradle@<full-sha> # v1.0.0
   with:
     java-version: ${{ steps.java.outputs.version }}
 ```
