@@ -20,8 +20,15 @@ fi
 # fail this check forever and the check would be the thing that gets disabled.
 # Nothing is lost: the title and commits a bot writes are Conventional, and the
 # title is what becomes the squash commit.
+#
+# release-please is the same story with a different shape:
+# release-please--branches--<target>, plus --components--<name> in a monorepo.
+# The double hyphen is its separator and cannot be reconfigured, so it can never
+# satisfy the single-hyphen rule below. Its PR title -- chore(main): release
+# X.Y.Z -- is Conventional, and that title is what the tag and changelog are cut
+# from, so the branch name carries no meaning worth enforcing.
 case "${branch}" in
-    dependabot/* | renovate/*) exit 0 ;;
+    dependabot/* | renovate/* | release-please--*) exit 0 ;;
 esac
 
 types='feature|feat|bugfix|fix|hotfix|release|chore|ai|claude|codex|copilot|cursor'
