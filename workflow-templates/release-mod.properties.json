@@ -1,0 +1,8 @@
+{
+  "name": "Release — Minecraft mod",
+  "description": "release-please grooms a release PR from Conventional Commits; merging it tags the release and publishes attested jars to Modrinth, CurseForge and GitHub.",
+  "creator": "studiobimo",
+  "iconName": "rocket",
+  "categories": ["Automation", "Java"],
+  "filePatterns": ["release-please-config.json$", "gradlew$"]
+}
