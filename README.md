@@ -13,12 +13,19 @@ everywhere at once.
 | `.github/workflows/ci-java-gradle.yml` | Java toolchain, Gradle build, test reports and artifacts                         |
 | `.github/workflows/ci-workflows.yml`   | actionlint, zizmor and shellcheck over a repo's own workflows                    |
 | `.github/workflows/ci-gitleaks.yml`    | Secret scan of what a pull request adds                                          |
+| `.github/workflows/release-please.yml` | Grooms a release pull request from Conventional Commits, then tags and releases  |
 | `.github/workflows/publish-mod.yml`    | Builds, attests and publishes a Minecraft mod to Modrinth, CurseForge and GitHub |
 
 Every `ci-*` file is `on: workflow_call` — library code, not something that runs on this repo's
 own pull requests. The `self-*` files are this repo's thin callers of them, which is how the
 library is proven before a consumer pins `@v1`. `release.yml` is neither: it is this repo's own
 release, and the only thing here that writes a tag.
+
+`release-please.yml` and `publish-mod.yml` are library code too, under a plain name rather than a
+`ci-` one: they run at release time in a consumer, not on its pull requests. Neither has a `self-*`
+caller — there is no mod to publish here, and this repo releases itself with semantic-release, so
+running release-please against it would fight over the same tags. Both are therefore tested
+cross-repo; see [AGENTS.md](AGENTS.md).
 
 ## Composite actions
 
@@ -58,6 +65,32 @@ publish:
     modrinth-token: ${{ secrets.MODRINTH_TOKEN }}
     curseforge-token: ${{ secrets.CURSEFORGE_TOKEN }}
 ```
+
+Releasing is two workflows in one run, and they must stay in one run: a tag created with
+`GITHUB_TOKEN` does not trigger a separate `on: push: tags` workflow, so the publish step is gated
+on the release step's output instead.
+
+```yaml
+jobs:
+  release:
+    permissions:
+      contents: write
+      pull-requests: write
+    uses: studiobimo/.github/.github/workflows/release-please.yml@v1
+
+  publish:
+    needs: release
+    if: ${{ needs.release.outputs.release-created == 'true' }}
+    permissions:
+      contents: write
+      id-token: write
+      attestations: write
+    uses: studiobimo/.github/.github/workflows/publish-mod.yml@v1
+    with:
+      tag-name: ${{ needs.release.outputs.tag-name }}
+```
+
+`workflow-templates/release-mod.yml` is that wiring, ready to copy.
 
 Each workflow and action documents its own inputs: the workflows in their `workflow_call` block, the
 actions in a README beside them.
