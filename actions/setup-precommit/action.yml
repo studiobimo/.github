@@ -1,0 +1,37 @@
+name: Setup pre-commit
+description: uv with a locked tool environment, plus a cached pre-commit hook environment.
+
+inputs:
+  working-directory:
+    description: Directory holding pyproject.toml and uv.lock for the tool environment.
+    required: false
+    default: .devtools
+  config-file:
+    description: Path to .pre-commit-config.yaml, used as the cache key.
+    required: false
+    default: .pre-commit-config.yaml
+  uv-version:
+    description: uv version to install. Pin it so a CI run and a developer's machine agree.
+    required: false
+    default: "0.12.17"
+
+runs:
+  using: composite
+  steps:
+    - uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4 # v10.1.0
+      with:
+        version: ${{ inputs.uv-version }}
+        enable-cache: true
+
+    # Inputs go through the environment, never interpolated into the script itself.
+    - shell: bash
+      env:
+        WORKING_DIRECTORY: ${{ inputs.working-directory }}
+      run: uv sync --project "${WORKING_DIRECTORY}" --frozen
+
+    # Hook environments are the slow part: every linter installs its own toolchain.
+    - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+      with:
+        path: ~/.cache/pre-commit
+        key: pre-commit-${{ runner.os }}-${{ hashFiles(inputs.config-file) }}
+        restore-keys: pre-commit-${{ runner.os }}-
