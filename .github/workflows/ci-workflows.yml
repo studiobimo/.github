@@ -1,0 +1,89 @@
+name: ci-workflows
+
+# Reusable: lints the workflow files themselves. actionlint checks syntax and
+# expressions (and shellchecks embedded `run:` scripts), zizmor audits them for
+# supply-chain and injection problems, and shellcheck covers the standalone *.sh
+# scripts actionlint never sees.
+#
+# Both linters are downloaded as pinned release binaries rather than wrapped in a
+# third-party action: one fewer action to trust, and the version is visible here.
+# shellcheck is preinstalled on the runner.
+#
+# The caller owns the trigger and any path filters:
+#   jobs:
+#     workflows:
+#       uses: studiobimo/.github/.github/workflows/ci-workflows.yml@v1
+
+on:
+  workflow_call:
+    inputs:
+      actionlint-version:
+        description: actionlint release to download and run.
+        type: string
+        required: false
+        default: "1.7.12"
+      zizmor-version:
+        description: zizmor release to download and run.
+        type: string
+        required: false
+        default: "1.30.1"
+      zizmor-persona:
+        description: >-
+          How much zizmor reports. `regular` is the default and the one worth failing on;
+          `auditor` adds pedantic findings that are usually noise in review.
+        type: string
+        required: false
+        default: regular
+
+permissions: {}
+
+jobs:
+  actionlint:
+    name: actionlint + shellcheck
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    env:
+      ACTIONLINT_VERSION: ${{ inputs.actionlint-version }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Run actionlint
+        run: |
+          curl -fsSL \
+            "https://github.com/rhysd/actionlint/releases/download/v${ACTIONLINT_VERSION}/actionlint_${ACTIONLINT_VERSION}_linux_amd64.tar.gz" \
+            | tar -xz actionlint
+          ./actionlint -color
+
+      - name: Run shellcheck
+        run: |
+          files=$(git ls-files '*.sh')
+          if [ -n "${files}" ]; then
+            echo "${files}" | xargs shellcheck
+          else
+            echo "No shell scripts to check."
+          fi
+
+  zizmor:
+    name: zizmor
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    env:
+      ZIZMOR_VERSION: ${{ inputs.zizmor-version }}
+      ZIZMOR_PERSONA: ${{ inputs.zizmor-persona }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Run zizmor
+        run: |
+          curl -fsSL \
+            "https://github.com/zizmorcore/zizmor/releases/download/v${ZIZMOR_VERSION}/zizmor-x86_64-unknown-linux-gnu.tar.gz" \
+            | tar -xz zizmor
+          ./zizmor --no-progress --persona "${ZIZMOR_PERSONA}" .

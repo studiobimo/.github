@@ -39,6 +39,10 @@ Consumers: `studiobimo/tallyhopper` (Minecraft mod, Java/Gradle) is the first.
   Scopes: `actions`, `workflows`, `devtools`, `templates`, `docs`, `deps`.
 - **Branches:** [Conventional Branch](https://conventionalbranch.org/), e.g. `feat/publish-mod`.
 - **PR size:** at most 20 changed files. Split bigger work with `gh stack`.
+- **Naming.** `ci-*` is library code (`on: workflow_call`), called by consumers at `@v1`.
+  `self-*` is this repo's own caller of one, invoked by local path
+  (`uses: ./.github/workflows/ci-*.yml`) so the library is dogfooded before anyone pins it.
+  `release` is the one bare name: it is genuinely not a caller. Any new caller is `self-*`.
 
 ## Testing a change
 

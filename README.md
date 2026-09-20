@@ -9,10 +9,15 @@ everywhere at once.
 
 | Workflow                               | What it does                                                                     |
 | -------------------------------------- | -------------------------------------------------------------------------------- |
-| `.github/workflows/pr-checks.yml`      | Conventional PR title and branch name, PR size limit, commitlint                 |
+| `.github/workflows/ci-pr.yml`          | Conventional PR title and branch name, PR size limit, Conventional Commits       |
 | `.github/workflows/ci-java-gradle.yml` | Java toolchain, Gradle build, test reports and artifacts                         |
-| `.github/workflows/release-please.yml` | Keeps a release PR open; tags and releases on merge                              |
+| `.github/workflows/ci-workflows.yml`   | actionlint, zizmor and shellcheck over a repo's own workflows                    |
+| `.github/workflows/ci-gitleaks.yml`    | Secret scan of what a pull request adds                                          |
 | `.github/workflows/publish-mod.yml`    | Builds, attests and publishes a Minecraft mod to Modrinth, CurseForge and GitHub |
+
+Every `ci-*` file is `on: workflow_call` — library code, not something that runs on this repo's
+own pull requests. The `self-*` files are this repo's thin callers of them, which is how the
+library is proven before a consumer pins `@v1`.
 
 ## Composite actions
 
@@ -30,7 +35,7 @@ Call a workflow at `@v1`. The tag floats: a release moves it, so a fix lands eve
 ```yaml
 jobs:
   pr-checks:
-    uses: studiobimo/.github/.github/workflows/pr-checks.yml@v1
+    uses: studiobimo/.github/.github/workflows/ci-pr.yml@v1
     with:
       max-files: 20
 ```
