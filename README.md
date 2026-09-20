@@ -24,7 +24,6 @@ library is proven before a consumer pins `@v1`.
 | Action                              | What it does                                                 |
 | ----------------------------------- | ------------------------------------------------------------ |
 | `.github/actions/setup-java-gradle` | Temurin JDK + Gradle with branch-aware caching               |
-| `.github/actions/setup-precommit`   | uv + pre-commit with a cached hook environment               |
 | `.github/actions/pr-checks`         | The PR title, branch, size and commit checks, for direct use |
 | `.github/actions/build-summary`     | JUnit + JaCoCo numbers into the job summary                  |
 
@@ -43,7 +42,7 @@ jobs:
 A **composite action** is different — reference it by full path and full SHA:
 
 ```yaml
-      - uses: studiobimo/.github/.github/actions/setup-java-gradle@<full-sha> # v1.0.0
+- uses: studiobimo/.github/.github/actions/setup-java-gradle@<full-sha> # v1.0.0
 ```
 
 GitHub's `sha_pinning_required` policy exempts reusable-workflow refs but not composite actions,
@@ -52,11 +51,11 @@ and in your repo this one is a foreign action. Dependabot bumps the SHA from the
 Secrets are passed explicitly. Nothing here uses `secrets: inherit`.
 
 ```yaml
-  publish:
-    uses: studiobimo/.github/.github/workflows/publish-mod.yml@v1
-    secrets:
-      modrinth-token: ${{ secrets.MODRINTH_TOKEN }}
-      curseforge-token: ${{ secrets.CURSEFORGE_TOKEN }}
+publish:
+  uses: studiobimo/.github/.github/workflows/publish-mod.yml@v1
+  secrets:
+    modrinth-token: ${{ secrets.MODRINTH_TOKEN }}
+    curseforge-token: ${{ secrets.CURSEFORGE_TOKEN }}
 ```
 
 Each workflow and action documents its own inputs: the workflows in their `workflow_call` block, the
@@ -74,6 +73,16 @@ pinned. No second checkout, and no self-referential SHA to bump on every release
 - `permissions: {}` at workflow level; each job asks for the least it needs.
 - `persist-credentials: false` on every checkout.
 - No secret is ever read in a workflow that also runs untrusted code from a fork.
+
+## Working on this repo
+
+```sh
+sh .devtools/install-hooks.sh
+```
+
+pnpm installs the Node toolchain (commitlint, Prettier, lefthook, semantic-release) and wires the
+git hooks; Homebrew adds actionlint, zizmor, shellcheck and gitleaks. The hooks warn and skip when
+a linter is missing, so a fresh clone can always commit — CI has no such escape hatch.
 
 ## Contributing
 

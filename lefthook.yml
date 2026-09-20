@@ -1,0 +1,60 @@
+# Local git hooks, managed by lefthook (installed by the package.json `prepare`
+# script, so `pnpm install` is all it takes).
+#
+# These mirror the CI gates so a problem surfaces before a push rather than in
+# review:
+#   commit-msg -> Conventional Commits (commitlint)
+#   pre-commit -> Prettier, then the four linters ci-workflows runs
+#
+# Prettier and commitlint are devDependencies, so they are always present. The
+# linters are system tools: the guards below warn and skip when one is missing
+# rather than blocking a commit on a machine that has not run
+# `sh .devtools/install-hooks.sh` yet. CI has no such escape hatch, which is
+# where the real gate lives.
+
+commit-msg:
+  commands:
+    commitlint:
+      run: pnpm exec commitlint --edit {1}
+
+pre-commit:
+  parallel: true
+  commands:
+    prettier:
+      glob: '*.{yml,yaml,json,md}'
+      run: pnpm exec prettier --check {staged_files}
+
+    actionlint:
+      glob: '.github/workflows/*.{yml,yaml}'
+      run: >
+        command -v actionlint >/dev/null 2>&1
+        && actionlint {staged_files}
+        || echo "actionlint not installed; skipping (see .devtools/install-hooks.sh)"
+
+    # Workflows and composite actions both: zizmor audits action.yml too, and this
+    # repo's whole output is those two file kinds.
+    zizmor:
+      glob: '.github/{workflows,actions}/**/*.{yml,yaml}'
+      run: >
+        command -v zizmor >/dev/null 2>&1
+        && zizmor --no-progress {staged_files}
+        || echo "zizmor not installed; skipping (see .devtools/install-hooks.sh)"
+
+    shellcheck:
+      glob: '*.sh'
+      run: >
+        command -v shellcheck >/dev/null 2>&1
+        && shellcheck {staged_files}
+        || echo "shellcheck not installed; skipping (see .devtools/install-hooks.sh)"
+
+    gitleaks:
+      run: >
+        command -v gitleaks >/dev/null 2>&1
+        && gitleaks git . --redact --staged
+        || echo "gitleaks not installed; skipping (see .devtools/install-hooks.sh)"
+
+    # Same-repo CI cannot catch a first-party action ref pinned the wrong way --
+    # GitHub's same-repo exemption hides it here and it breaks only consumers.
+    action-pins:
+      glob: '{.github/workflows,workflow-templates}/*.{yml,yaml}'
+      run: sh .devtools/check-action-pins.sh

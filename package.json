@@ -1,0 +1,33 @@
+{
+  "name": "@studiobimo/dotgithub",
+  "version": "0.0.0-managed-by-semantic-release",
+  "private": true,
+  "description": "Reusable workflows, composite actions and org defaults for the studiobimo organization.",
+  "type": "module",
+  "license": "UNLICENSED",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/studiobimo/.github.git"
+  },
+  "scripts": {
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
+    "check:action-pins": "sh .devtools/check-action-pins.sh",
+    "commitlint": "commitlint",
+    "prepare": "lefthook install"
+  },
+  "devDependencies": {
+    "@commitlint/cli": "^20.1.0",
+    "@commitlint/config-conventional": "^20.0.0",
+    "@semantic-release/commit-analyzer": "^13.0.1",
+    "@semantic-release/github": "^11.0.6",
+    "@semantic-release/release-notes-generator": "^14.1.0",
+    "lefthook": "^2.1.12",
+    "prettier": "^3.6.2",
+    "semantic-release": "^24.2.9"
+  },
+  "engines": {
+    "node": ">=24"
+  },
+  "packageManager": "pnpm@11.21.0"
+}
