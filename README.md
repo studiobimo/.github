@@ -16,29 +16,39 @@ everywhere at once.
 
 ## Composite actions
 
-| Action                      | What it does                                                    |
-| --------------------------- | --------------------------------------------------------------- |
-| `actions/setup-java-gradle` | Temurin JDK + Gradle with branch-aware caching                  |
-| `actions/setup-precommit`   | uv + pre-commit with a cached hook environment                  |
-| `actions/pr-checks`         | The PR title, branch, size and commit checks, for direct use    |
+| Action                              | What it does                                                 |
+| ----------------------------------- | ------------------------------------------------------------ |
+| `.github/actions/setup-java-gradle` | Temurin JDK + Gradle with branch-aware caching               |
+| `.github/actions/setup-precommit`   | uv + pre-commit with a cached hook environment               |
+| `.github/actions/pr-checks`         | The PR title, branch, size and commit checks, for direct use |
+| `.github/actions/build-summary`     | JUnit + JaCoCo numbers into the job summary                  |
 
 ## Calling them
 
-Pin by full commit SHA, never by tag — the org requires it, and a tag can be moved under you.
+Call a workflow at `@v1`. The tag floats: a release moves it, so a fix lands everywhere at once.
 
 ```yaml
 jobs:
   pr-checks:
-    uses: studiobimo/.github/.github/workflows/pr-checks.yml@<full-sha>  # v1.0.0
+    uses: studiobimo/.github/.github/workflows/pr-checks.yml@v1
     with:
       max-files: 20
 ```
+
+A **composite action** is different — reference it by full path and full SHA:
+
+```yaml
+      - uses: studiobimo/.github/.github/actions/setup-java-gradle@<full-sha> # v1.0.0
+```
+
+GitHub's `sha_pinning_required` policy exempts reusable-workflow refs but not composite actions,
+and in your repo this one is a foreign action. Dependabot bumps the SHA from the version comment.
 
 Secrets are passed explicitly. Nothing here uses `secrets: inherit`.
 
 ```yaml
   publish:
-    uses: studiobimo/.github/.github/workflows/publish-mod.yml@<full-sha>  # v1.0.0
+    uses: studiobimo/.github/.github/workflows/publish-mod.yml@v1
     secrets:
       modrinth-token: ${{ secrets.MODRINTH_TOKEN }}
       curseforge-token: ${{ secrets.CURSEFORGE_TOKEN }}
@@ -47,13 +57,15 @@ Secrets are passed explicitly. Nothing here uses `secrets: inherit`.
 Each workflow and action documents its own inputs: the workflows in their `workflow_call` block, the
 actions in a README beside them.
 
-A reusable workflow here checks this repository out at `github.job_workflow_sha` — its own commit —
-so the scripts and actions it runs always match the version the caller pinned, with no
-self-referential SHA to bump on every release.
+A reusable workflow here reaches its own composite actions with `$/.github/actions/<name>` —
+GitHub's self-repository form, which resolves to this repository at the exact commit the caller
+pinned. No second checkout, and no self-referential SHA to bump on every release.
 
 ## Conventions
 
-- Every `uses:` is pinned to a full-length commit SHA, with the human-readable version in a comment.
+- Third-party `uses:` are pinned to a full-length commit SHA, with the version in a comment.
+  Our own workflows are called at `@v1`; our own actions are reached with `$/` from here and
+  SHA-pinned from a workflow template. `sh .devtools/check-action-pins.sh` enforces it.
 - `permissions: {}` at workflow level; each job asks for the least it needs.
 - `persist-credentials: false` on every checkout.
 - No secret is ever read in a workflow that also runs untrusted code from a fork.

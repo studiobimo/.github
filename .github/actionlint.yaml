@@ -1,12 +1,14 @@
-# github.job_workflow_sha is real and documented -- "for a job using a reusable
-# workflow, the commit SHA for the reusable workflow file" -- but actionlint
-# 1.7.12 ships an older github-context schema that does not list it. Reusable
-# workflows here use it to check out their own repo at their own commit, so the
-# scripts and actions they run always match the version the caller pinned. The
-# alternative is a self-referential SHA in `uses:` that has to be bumped every
-# release, which is worse. Drop this ignore when actionlint learns the property.
-# https://docs.github.com/en/actions/reference/workflows-and-actions/contexts
+# GitHub shipped the `$/` self-repository `uses:` form on 2026-07-30: a ref starting
+# with `$/` resolves to the workflow's own repository at the exact commit running, with
+# no checkout and no hardcoded SHA. Our reusable workflows use it to reach the composite
+# actions beside them, so the action a caller gets always matches the version it pinned.
+#
+# actionlint 1.7.12 predates the feature and rejects the form outright ("ref is
+# missing"). The fix is open upstream but unreleased, so the false positive is ignored
+# here -- narrowly, by the exact message, so every other `uses:` is still validated.
+# Delete this file when a release carrying the fix lands.
+# https://github.com/rhysd/actionlint/pull/732
 paths:
   .github/workflows/**.yml:
     ignore:
-      - 'property "job_workflow_sha" is not defined'
+      - 'specifying action "\$/[^"]+" in invalid format because ref is missing'

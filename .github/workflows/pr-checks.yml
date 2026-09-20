@@ -5,10 +5,11 @@ name: PR checks
 # size limit that pushes large work into a stack, and Conventional Commits on
 # each commit in the branch.
 #
-# The checks live in actions/pr-checks so this file stays readable and repos can
-# also call that action directly. It is checked out at job_workflow_sha -- the
-# commit of *this* workflow -- so the scripts always match the version the
-# caller pinned, with no self-referential SHA to keep updating.
+# The checks live in .github/actions/pr-checks so this file stays readable. It is
+# referenced with `$/`, GitHub's self-repository form, which resolves to THIS repo
+# at the exact commit this workflow is running -- so the action and its scripts
+# always match the version the caller pinned, with no second checkout and no
+# self-referential SHA to keep updating.
 #
 # Nothing here reads a secret, and the pull request's code is only ever read by
 # git, never executed.
@@ -43,18 +44,7 @@ jobs:
           fetch-depth: 0
           persist-credentials: false
 
-      - name: Check out the checks themselves
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          repository: studiobimo/.github
-          ref: ${{ github.job_workflow_sha }}
-          path: .studiobimo-ci
-          persist-credentials: false
-
-      # The `$/` form zizmor prefers exists to stop a workflow loading an action cloned
-      # at runtime -- which is deliberately what this does. The action comes from THIS
-      # repo at job_workflow_sha, not from the caller's checkout.
-      - uses: ./.studiobimo-ci/actions/pr-checks # zizmor: ignore[self-repository]
+      - uses: $/.github/actions/pr-checks
         with:
           title: ${{ github.event.pull_request.title }}
           branch: ${{ github.head_ref }}

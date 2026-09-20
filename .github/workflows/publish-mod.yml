@@ -77,14 +77,6 @@ jobs:
           ref: ${{ inputs.tag-name }}
           persist-credentials: false
 
-      - name: Check out the shared CI pieces
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          repository: studiobimo/.github
-          ref: ${{ github.job_workflow_sha }}
-          path: .studiobimo-ci
-          persist-credentials: false
-
       - name: Resolve the JDK version
         id: java
         env:
@@ -98,7 +90,8 @@ jobs:
           fi
           echo "version=${version}" >> "${GITHUB_OUTPUT}"
 
-      - uses: ./.studiobimo-ci/actions/setup-java-gradle # zizmor: ignore[self-repository]
+      # `$/` resolves to THIS repo at the exact commit this workflow is running.
+      - uses: $/.github/actions/setup-java-gradle
         with:
           java-version: ${{ steps.java.outputs.version }}
           # A release must not depend on, or write to, a cache built elsewhere.
