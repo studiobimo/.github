@@ -1,0 +1,73 @@
+name: ci-gitleaks
+
+# Reusable: scans for committed secrets with gitleaks.
+#
+# Uses the pinned release binary rather than gitleaks-action, which requires a paid
+# GITLEAKS_LICENSE for organization repositories and would make every run depend on a
+# secret this workflow has no other use for. The binary is the same scanner.
+#
+# On a pull request only the commits the PR adds are scanned -- that is what catches a
+# secret being introduced, and it keeps a secret that was committed and rotated long ago
+# from failing every build forever. Any other trigger scans the full history.
+#
+#   jobs:
+#     secrets:
+#       uses: studiobimo/.github/.github/workflows/ci-gitleaks.yml@v1
+
+on:
+  workflow_call:
+    inputs:
+      gitleaks-version:
+        description: gitleaks release to download and run.
+        type: string
+        required: false
+        default: "8.30.1"
+      config-file:
+        description: Path to a .gitleaks.toml. Empty uses the tool's built-in rules.
+        type: string
+        required: false
+        default: ""
+
+permissions: {}
+
+jobs:
+  scan:
+    name: Secret scan
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    env:
+      GITLEAKS_VERSION: ${{ inputs.gitleaks-version }}
+      CONFIG_FILE: ${{ inputs.config-file }}
+      BASE_SHA: ${{ github.event.pull_request.base.sha }}
+      HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          # Both ends of the range have to be present, and a full-history scan needs it all.
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Run gitleaks
+        run: |
+          curl -fsSL \
+            "https://github.com/gitleaks/gitleaks/releases/download/v${GITLEAKS_VERSION}/gitleaks_${GITLEAKS_VERSION}_linux_x64.tar.gz" \
+            | tar -xz gitleaks
+
+          args="--redact --verbose"
+          if [ -n "${CONFIG_FILE}" ]; then
+            args="${args} --config ${CONFIG_FILE}"
+          fi
+
+          # --redact so a finding names the file and rule without reprinting the secret
+          # into a log that is more widely readable than the secret itself.
+          if [ -n "${BASE_SHA}" ] && [ -n "${HEAD_SHA}" ]; then
+            echo "Scanning ${BASE_SHA}..${HEAD_SHA}"
+            # shellcheck disable=SC2086 # args is a deliberate argument list
+            ./gitleaks git . ${args} --log-opts="${BASE_SHA}..${HEAD_SHA}"
+          else
+            echo "Scanning the full history"
+            # shellcheck disable=SC2086
+            ./gitleaks git . ${args}
+          fi

@@ -1,4 +1,4 @@
-name: PR checks
+name: ci-pr
 
 # The org's non-negotiables, enforced on every pull request: a Conventional
 # Commits title (it becomes the squash commit), a Conventional Branch name, a
