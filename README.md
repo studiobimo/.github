@@ -12,9 +12,16 @@ everywhere at once.
 | `.github/workflows/ci-pr.yml`          | Conventional PR title and branch name, PR size limit, Conventional Commits       |
 | `.github/workflows/ci-java-gradle.yml` | Java toolchain, Gradle build, test reports and artifacts                         |
 | `.github/workflows/ci-workflows.yml`   | actionlint, zizmor and shellcheck over a repo's own workflows                    |
+| `.github/workflows/ci-pre-commit.yml`  | A repo's own pre-commit hooks, over the whole tree                               |
 | `.github/workflows/ci-gitleaks.yml`    | Secret scan of what a pull request adds                                          |
 | `.github/workflows/release-please.yml` | Grooms a release pull request from Conventional Commits, then tags and releases  |
 | `.github/workflows/publish-mod.yml`    | Builds, attests and publishes a Minecraft mod to Modrinth, CurseForge and GitHub |
+
+A repo with a `.pre-commit-config.yaml` should call `ci-pre-commit.yml` **instead of**
+`ci-workflows.yml` and `ci-gitleaks.yml`, not alongside them. Those two download actionlint,
+zizmor, shellcheck and gitleaks for repos that have no pre-commit config; a repo that has one
+already pins the same four by frozen `rev:`, so calling both runs them twice at two sets of
+version numbers that drift. One source of truth per repo.
 
 Every `ci-*` file is `on: workflow_call` — library code, not something that runs on this repo's
 own pull requests. The `self-*` files are this repo's thin callers of them, which is how the
