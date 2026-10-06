@@ -42,6 +42,44 @@ cross-repo; see [AGENTS.md](AGENTS.md).
 | `.github/actions/pr-checks`         | The PR title, branch, size and commit checks, for direct use |
 | `.github/actions/build-summary`     | JUnit + JaCoCo numbers into the job summary                  |
 
+## Pre-commit hooks
+
+This repo is also a [pre-commit](https://pre-commit.com/) hook repo. The hooks are the same
+scripts `ci-pr.yml` runs, so what passes locally passes on the pull request.
+
+| Hook id               | Stage                | What it checks                                                 |
+| --------------------- | -------------------- | -------------------------------------------------------------- |
+| `conventional-commit` | `commit-msg`         | The commit subject is a Conventional Commit                    |
+| `conventional-branch` | `pre-push`, `manual` | The branch name follows Conventional Branch                    |
+| `pr-size`             | `pre-push`, `manual` | The branch changes at most 20 files against the layer below it |
+
+```yaml
+# .pre-commit-config.yaml
+default_install_hook_types: [pre-commit, commit-msg, pre-push]
+repos:
+  - repo: https://github.com/studiobimo/.github
+    rev: <full-sha> # frozen: v1.5.0
+    hooks:
+      - id: conventional-commit
+      - id: conventional-branch
+      - id: pr-size
+```
+
+Pin `rev:` to a release SHA with the version in a `frozen:` comment; Dependabot's `pre-commit`
+ecosystem bumps both. The floating `v1` tag is for workflows only: pre-commit caches a hook repo by
+`rev`, so a moving tag would never be re-fetched.
+
+Two environment variables make the hooks usable from a script, such as an agent guard that has to
+judge a command before it runs:
+
+```sh
+BRANCH_NAME=feat/new-thing pre-commit run conventional-branch --hook-stage manual
+PR_BASE=main pre-commit run pr-size --hook-stage manual
+```
+
+`PR_MAX_FILES` changes the limit. Without `PR_BASE` the base is the branch below this one in a
+`gh stack`, else the remote's default branch.
+
 ## Calling them
 
 Call a workflow at `@v1`. The tag floats: a release moves it, so a fix lands everywhere at once.
@@ -137,6 +175,7 @@ copy-paste starters.
 
 ```sh
 sh .devtools/install-hooks.sh
+bash .devtools/test-hooks.sh   # the check scripts behind ci-pr and the pre-commit hooks
 ```
 
 pnpm installs the Node toolchain (commitlint, Prettier, lefthook, semantic-release) and wires the

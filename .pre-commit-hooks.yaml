@@ -1,0 +1,40 @@
+# Makes this repository a pre-commit hook repo: the same scripts ci-pr.yml runs on a
+# pull request, offered as git hooks so a problem surfaces before the push rather
+# than in review. A consumer pins `rev:` to a release SHA and Dependabot's
+# pre-commit ecosystem bumps it.
+#
+# `language: script` runs the entry straight from pre-commit's clone of this repo,
+# with the consumer's repository as the working directory. The scripts need bash and
+# git; pr-size also uses gh and jq when they are present, to find a stack's parent.
+
+- id: conventional-commit
+  name: conventional commit message
+  description: The commit subject is a Conventional Commit (https://www.conventionalcommits.org/en/v1.0.0/).
+  entry: .devtools/check-conventional-commit.sh
+  # pre-commit appends the path of the message file, which is what --file reads.
+  args: [--file]
+  language: script
+  stages: [commit-msg]
+
+- id: conventional-branch
+  name: conventional branch name
+  description: >-
+    The current branch follows Conventional Branch (https://conventionalbranch.org/).
+    Set BRANCH_NAME to check a name that is not checked out yet.
+  entry: .devtools/check-branch-name.sh
+  language: script
+  pass_filenames: false
+  always_run: true
+  stages: [pre-push, manual]
+
+- id: pr-size
+  name: PR size
+  description: >-
+    The branch changes no more files than a pull request may contain (PR_MAX_FILES,
+    default 20). The base is PR_BASE, else the branch below in a gh stack, else the
+    default branch.
+  entry: .devtools/check-pr-size.sh
+  language: script
+  pass_filenames: false
+  always_run: true
+  stages: [pre-push, manual]

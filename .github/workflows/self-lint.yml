@@ -51,6 +51,11 @@ jobs:
       - name: Check first-party action pins
         run: sh .devtools/check-action-pins.sh
 
+      # ci-pr only exercises these scripts with a pull request's arguments. The
+      # pre-commit hooks call them with none, and that path is tested here.
+      - name: Test the check scripts
+        run: bash .devtools/test-hooks.sh
+
       - name: Enable pnpm via corepack
         run: corepack enable
 
