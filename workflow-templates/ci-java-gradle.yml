@@ -38,8 +38,6 @@ concurrency:
 
 jobs:
   check:
-    # A called workflow can never hold more than its caller, so the caller has to grant
-    # what it needs. `permissions: {}` above keeps every other job at nothing.
     permissions:
       contents: read
     uses: studiobimo/.github/.github/workflows/ci-java-gradle.yml@v1

@@ -1,17 +1,9 @@
 #!/usr/bin/env bash
-# Tests the check scripts behind ci-pr and the pre-commit hooks.
-#
-# ci-pr calls them with a pull request's arguments; pre-commit calls them with
-# none and lets them work the answer out. Both paths are covered here, in a
-# throwaway repository, so nothing depends on the branch this runs from.
-#
-# Usage: bash .devtools/test-hooks.sh
 set -euo pipefail
 
 here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 failures=0
 
-# expect <pass|fail> <description> <command...>
 expect() {
     local want="$1" what="$2" got=pass
     shift 2
@@ -40,7 +32,6 @@ cd "${work}/repo"
 git init --quiet --initial-branch=main .
 git commit --quiet --allow-empty -m 'chore: initial commit'
 
-# add_files <count> <prefix>: one commit adding that many files.
 add_files() {
     local i
     for ((i = 1; i <= $1; i++)); do

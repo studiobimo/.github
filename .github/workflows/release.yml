@@ -54,11 +54,10 @@ jobs:
           GITHUB_TOKEN: ${{ github.token }}
         run: pnpm exec semantic-release
 
-      # Moved through the API rather than `git push`. This repository is private and
-      # the checkout above keeps persist-credentials: false, so the local clone holds
-      # no credentials at all -- any plain git network command fails with "could not
-      # read Username". (semantic-release is unaffected: it builds its own authenticated
-      # remote.) The API needs no git auth, and no token ever ends up in a URL.
+      # Moved through the API rather than `git push`. The checkout above keeps
+      # persist-credentials: false, so the local clone holds no credentials for a push.
+      # (semantic-release is unaffected: it builds its own authenticated remote.) The
+      # API needs no git auth, and no token ever ends up in a URL.
       #
       # No fetch either: checkout used fetch-depth: 0, and the tag semantic-release
       # just cut is already local.

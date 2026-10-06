@@ -27,7 +27,6 @@ updates:
         patterns:
           - '*'
 
-  # The Node toolchain: commitlint, prettier, lefthook, semantic-release.
   - package-ecosystem: npm
     directory: /
     schedule:
