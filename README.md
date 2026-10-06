@@ -180,6 +180,9 @@ pnpm installs the Node toolchain (commitlint, Prettier, lefthook, semantic-relea
 git hooks; Homebrew adds actionlint, zizmor, shellcheck and gitleaks. The hooks warn and skip when
 a linter is missing, so a fresh clone can always commit — CI has no such escape hatch.
 
+On push, the hooks also check the branch name and the 20-file limit, with the same scripts `ci-pr`
+runs on the pull request.
+
 ## Contributing
 
 [Conventional Commits](https://www.conventionalcommits.org/en/v1.0.0/) and

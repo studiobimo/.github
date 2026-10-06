@@ -5,6 +5,7 @@
 # review:
 #   commit-msg -> Conventional Commits (commitlint)
 #   pre-commit -> Prettier, then the four linters ci-workflows runs
+#   pre-push   -> Conventional Branch name and the PR size limit (ci-pr)
 #
 # Prettier and commitlint are devDependencies, so they are always present. The
 # linters are system tools: the guards below warn and skip when one is missing
@@ -76,3 +77,18 @@ pre-commit:
     action-pins:
       glob: '{.github/workflows,workflow-templates}/*.{yml,yaml}'
       run: sh .devtools/check-action-pins.sh
+
+# The same two scripts ci-pr runs, and the ones `.pre-commit-hooks.yaml` offers to
+# consumers. Without them here this repo was the one place a bad branch name was
+# first reported by CI, after the pull request was already open.
+#
+# Both check the branch that is checked out, not the ref being pushed, which is
+# the same thing in every push but `git push origin <other-branch>`.
+pre-push:
+  parallel: true
+  commands:
+    branch-name:
+      run: bash .devtools/check-branch-name.sh
+
+    pr-size:
+      run: bash .devtools/check-pr-size.sh
