@@ -18,13 +18,13 @@
     "prepare": "lefthook install"
   },
   "devDependencies": {
-    "@commitlint/cli": "^21.2.2",
-    "@commitlint/config-conventional": "^21.2.2",
+    "@commitlint/cli": "^21.2.3",
+    "@commitlint/config-conventional": "^21.2.3",
     "@semantic-release/commit-analyzer": "^13.0.1",
-    "@semantic-release/github": "^12.0.9",
+    "@semantic-release/github": "^12.0.10",
     "@semantic-release/release-notes-generator": "^14.1.0",
-    "lefthook": "^2.1.12",
-    "prettier": "^3.6.2",
+    "lefthook": "^2.1.14",
+    "prettier": "^3.9.9",
     "semantic-release": "^25.0.9"
   },
   "engines": {
