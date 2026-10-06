@@ -14,6 +14,7 @@
     "format:check": "prettier --check .",
     "check:action-pins": "sh .devtools/check-action-pins.sh",
     "test:hooks": "bash .devtools/test-hooks.sh",
+    "settings:check": "bash .devtools/repo-settings.sh --check",
     "commitlint": "commitlint",
     "prepare": "lefthook install"
   },

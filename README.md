@@ -154,6 +154,46 @@ pinned. No second checkout, and no self-referential SHA to bump on every release
 - `persist-credentials: false` on every checkout.
 - No secret is ever read in a workflow that also runs untrusted code from a fork.
 
+## Rulesets and repository settings
+
+Every repository carries the same settings and the same branch rules, defined here once.
+
+| Path                         | What it holds                                                                 |
+| ---------------------------- | ----------------------------------------------------------------------------- |
+| `rulesets/<name>.json`       | One ruleset each, in the format GitHub's **Import a ruleset** reads           |
+| `settings/repository.json`   | Merge options, features, security and Actions settings every repo should have |
+| `settings/rulesets.json`     | Which rulesets a repository gets; `default` unless it is listed by name       |
+| `.devtools/repo-settings.sh` | Compares every repository with the above, and applies it                      |
+
+| Ruleset              | Applies to                   | Rules                                                                                           |
+| -------------------- | ---------------------------- | ----------------------------------------------------------------------------------------------- |
+| `default-branch`     | the default branch           | Pull request required, squash only, linear history, resolved threads, no force push or deletion |
+| `release-tags`       | `v*.*.*` and `<name>-v*.*.*` | A release tag cannot be moved or deleted. The floating `v1` is not matched                      |
+| `checks-project`     | the default branch           | Requires `pr-checks` and `lint`                                                                 |
+| `checks-java-gradle` | the default branch           | Requires the Gradle `check`                                                                     |
+| `checks-dotgithub`   | the default branch           | Requires this repo's own `self-*` checks                                                        |
+
+Rulesets stack, so a repository takes the pieces that fit it. Required checks are separate from
+`default-branch` because the check names differ by stack.
+
+```sh
+bash .devtools/repo-settings.sh --check            # what differs, in every repo; changes nothing
+bash .devtools/repo-settings.sh                    # apply to every repo
+bash .devtools/repo-settings.sh --check datapacks  # one repo
+```
+
+It needs `gh` signed in as an admin of the repositories. Only keys written in `settings/` are
+compared, and a ruleset that is on a repository but not listed for it is reported, never deleted.
+To add one ruleset by hand instead: Settings → Rules → Rulesets → New ruleset → Import a ruleset.
+
+These are repository rulesets applied one repo at a time, because organization-wide rulesets
+are not available on the Free plan.
+
+Repository admins can bypass the branch rules on a pull request, and one case needs it: the
+release pull request that release-please opens with `GITHUB_TOKEN` does not trigger workflows, so
+its required checks never report. Merge it with the bypass checkbox, or give release-please its
+own token (`release-token`) so the checks run.
+
 ## Workflow templates
 
 `workflow-templates/` holds starters offered in the "New workflow" UI of other studiobimo
