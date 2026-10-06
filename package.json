@@ -4,7 +4,7 @@
   "private": true,
   "description": "Reusable workflows, composite actions and org defaults for the studiobimo organization.",
   "type": "module",
-  "license": "UNLICENSED",
+  "license": "MIT",
   "repository": {
     "type": "git",
     "url": "https://github.com/studiobimo/.github.git"

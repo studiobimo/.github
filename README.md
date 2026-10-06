@@ -185,3 +185,7 @@ a linter is missing, so a fresh clone can always commit — CI has no such escap
 [Conventional Commits](https://www.conventionalcommits.org/en/v1.0.0/) and
 [Conventional Branch](https://conventionalbranch.org/) apply here too, and a PR changes at most 20
 files. See [AGENTS.md](AGENTS.md).
+
+## License
+
+[MIT](LICENSE)
