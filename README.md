@@ -166,11 +166,8 @@ where `studiobimo/.github` is a foreign repository: `$/` would resolve to _their
 refs stay `@v1`; any action ref in a template must be a full SHA.
 `sh .devtools/check-action-pins.sh` enforces exactly this split.
 
-Two caveats. Templates are not audited by zizmor — it only collects files under
+One caveat. Templates are not audited by zizmor — it only collects files under
 `.github/workflows/` — so `check-action-pins` and review are the whole safety net for them.
-And because this repository is private, whether the templates actually appear in another repo's
-Actions tab is something to confirm rather than assume; if they do not, they still work as
-copy-paste starters.
 
 ## Working on this repo
 

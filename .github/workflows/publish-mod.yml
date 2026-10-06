@@ -90,7 +90,6 @@ jobs:
           fi
           echo "version=${version}" >> "${GITHUB_OUTPUT}"
 
-      # `$/` resolves to THIS repo at the exact commit this workflow is running.
       - uses: $/.github/actions/setup-java-gradle
         with:
           java-version: ${{ steps.java.outputs.version }}
