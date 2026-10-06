@@ -1,0 +1,179 @@
+name: ci-template-drift
+
+# Reusable: reports when a repository has fallen behind the project template it was
+# created from.
+#
+# A template only helps on the day a repo is born. After that the shared files --
+# agent hooks, lint config, the conventions block in AGENTS.md -- are edited in one
+# repo and not the others, and nobody notices. This compares the caller against the
+# template's latest release and keeps exactly one issue open while they differ:
+# opened on the first drift, rewritten in place as it changes, closed when the repo
+# is back in step. One issue per repo, never one per run.
+#
+# What counts as drift is the template's business, not this workflow's. The caller's
+# own .devtools/scripts/template-sync.sh does the comparison, against the manifest the
+# template ships, so this file never needs to know which files are managed. The same
+# script fixes it locally: `make -C .devtools sync`.
+#
+# The template is public, so the caller's own token is enough to read it and no
+# secret is involved. The step that runs the caller's script holds no credential at
+# all; only the last step, which writes the issue, is given the token.
+#
+#   on:
+#     schedule:
+#       - cron: '17 6 * * 1'
+#     workflow_dispatch:
+#
+#   jobs:
+#     drift:
+#       permissions:
+#         contents: read
+#         issues: write
+#       uses: studiobimo/.github/.github/workflows/ci-template-drift.yml@v1
+
+on:
+  workflow_call:
+    inputs:
+      template-repo:
+        description: The template repository, as owner/name.
+        type: string
+        required: false
+        default: studiobimo/project-template
+      ref:
+        description: Template tag or branch to compare against. Empty uses the template's latest release.
+        type: string
+        required: false
+        default: ''
+      label:
+        description: Label that marks the tracking issue. It is how the next run finds the issue again.
+        type: string
+        required: false
+        default: template-drift
+    outputs:
+      drift:
+        description: The string 'true' when the repository differs from the template.
+        value: ${{ jobs.drift.outputs.drift }}
+
+permissions: {}
+
+jobs:
+  drift:
+    name: Compare with the template
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      # Opening, rewriting and closing the tracking issue.
+      issues: write
+    env:
+      TEMPLATE_REPO: ${{ inputs.template-repo }}
+    outputs:
+      drift: ${{ steps.check.outputs.drift }}
+    steps:
+      - name: Check out the repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Resolve the template version
+        id: ref
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REF: ${{ inputs.ref }}
+        run: |
+          if [ -z "${REF}" ]; then
+            REF="$(gh api "repos/${TEMPLATE_REPO}/releases/latest" --jq .tag_name)" || {
+              echo "::error::Cannot read the latest release of ${TEMPLATE_REPO}. Is it public, and has it released yet?"
+              exit 1
+            }
+          fi
+          echo "Comparing against ${TEMPLATE_REPO}@${REF}"
+          echo "ref=${REF}" >> "${GITHUB_OUTPUT}"
+
+      - name: Check out the template
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: ${{ inputs.template-repo }}
+          ref: ${{ steps.ref.outputs.ref }}
+          path: .template-source
+          persist-credentials: false
+
+      # Exit 0 is in step, 1 is drift, anything else is the script itself failing --
+      # which must fail the run rather than be reported as "no drift".
+      - name: Compare
+        id: check
+        env:
+          REF: ${{ steps.ref.outputs.ref }}
+        run: |
+          script=.devtools/scripts/template-sync.sh
+          if [ ! -x "${script}" ]; then
+            echo "::error::${script} is missing. This repository has not adopted ${TEMPLATE_REPO} yet."
+            exit 1
+          fi
+
+          status=0
+          "${script}" --check --from "${GITHUB_WORKSPACE}/.template-source" --ref "${REF}" \
+            > "${RUNNER_TEMP}/drift.txt" 2>&1 || status=$?
+          cat "${RUNNER_TEMP}/drift.txt"
+
+          case "${status}" in
+            0) echo "drift=false" >> "${GITHUB_OUTPUT}" ;;
+            1) echo "drift=true" >> "${GITHUB_OUTPUT}" ;;
+            *) exit "${status}" ;;
+          esac
+
+      - name: Update the tracking issue
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          DRIFT: ${{ steps.check.outputs.drift }}
+          REF: ${{ steps.ref.outputs.ref }}
+          LABEL: ${{ inputs.label }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          number="$(gh issue list --label "${LABEL}" --state open --json number --jq '.[0].number // empty')"
+
+          if [ "${DRIFT}" != "true" ]; then
+            echo "### In step with \`${TEMPLATE_REPO}@${REF}\`" >> "${GITHUB_STEP_SUMMARY}"
+            if [ -n "${number}" ]; then
+              gh issue close "${number}" --comment "Back in step with \`${TEMPLATE_REPO}@${REF}\`."
+            fi
+            exit 0
+          fi
+
+          {
+            echo "This repository differs from \`${TEMPLATE_REPO}@${REF}\` in files the template manages."
+            echo
+            echo "Bring it back in step:"
+            echo
+            echo '```sh'
+            echo "git switch -c chore/sync-template"
+            echo "make -C .devtools sync"
+            echo '```'
+            echo
+            echo "If a difference is deliberate, list the path in \`.template-ignore\` and say why,"
+            echo "or change the template so every repository gets it."
+            echo
+            echo "<details><summary>What differs</summary>"
+            echo
+            echo '````diff'
+            # An issue body tops out at 65536 characters; the run log has the rest.
+            head -c 60000 "${RUNNER_TEMP}/drift.txt"
+            echo
+            echo '````'
+            echo
+            echo "</details>"
+            echo
+            echo "Rewritten by [the last run](${RUN_URL}) and closed automatically once the two match."
+          } > "${RUNNER_TEMP}/body.md"
+
+          if [ -n "${number}" ]; then
+            gh issue edit "${number}" --body-file "${RUNNER_TEMP}/body.md"
+          else
+            # --force makes this a no-op when the label already exists.
+            gh label create "${LABEL}" --force --color FBCA04 \
+              --description "Managed files differ from the project template"
+            gh issue create --title "Template drift: behind ${TEMPLATE_REPO}" \
+              --label "${LABEL}" --body-file "${RUNNER_TEMP}/body.md"
+          fi
+          echo "### Drift from \`${TEMPLATE_REPO}@${REF}\`" >> "${GITHUB_STEP_SUMMARY}"

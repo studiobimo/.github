@@ -1,0 +1,7 @@
+{
+  "name": "Template drift",
+  "description": "Weekly comparison with the project template; keeps one issue open while managed files differ.",
+  "creator": "studiobimo",
+  "iconName": "sync",
+  "categories": ["Automation"]
+}

@@ -7,15 +7,16 @@ everywhere at once.
 
 ## Reusable workflows
 
-| Workflow                               | What it does                                                                     |
-| -------------------------------------- | -------------------------------------------------------------------------------- |
-| `.github/workflows/ci-pr.yml`          | Conventional PR title and branch name, PR size limit, Conventional Commits       |
-| `.github/workflows/ci-java-gradle.yml` | Java toolchain, Gradle build, test reports and artifacts                         |
-| `.github/workflows/ci-workflows.yml`   | actionlint, zizmor and shellcheck over a repo's own workflows                    |
-| `.github/workflows/ci-pre-commit.yml`  | A repo's own pre-commit hooks, over the whole tree                               |
-| `.github/workflows/ci-gitleaks.yml`    | Secret scan of what a pull request adds                                          |
-| `.github/workflows/release-please.yml` | Grooms a release pull request from Conventional Commits, then tags and releases  |
-| `.github/workflows/publish-mod.yml`    | Builds, attests and publishes a Minecraft mod to Modrinth, CurseForge and GitHub |
+| Workflow                                  | What it does                                                                     |
+| ----------------------------------------- | -------------------------------------------------------------------------------- |
+| `.github/workflows/ci-pr.yml`             | Conventional PR title and branch name, PR size limit, Conventional Commits       |
+| `.github/workflows/ci-java-gradle.yml`    | Java toolchain, Gradle build, test reports and artifacts                         |
+| `.github/workflows/ci-workflows.yml`      | actionlint, zizmor and shellcheck over a repo's own workflows                    |
+| `.github/workflows/ci-pre-commit.yml`     | A repo's own pre-commit hooks, over the whole tree                               |
+| `.github/workflows/ci-gitleaks.yml`       | Secret scan of what a pull request adds                                          |
+| `.github/workflows/ci-template-drift.yml` | Compares a repo with the project template and tracks the difference in one issue |
+| `.github/workflows/release-please.yml`    | Grooms a release pull request from Conventional Commits, then tags and releases  |
+| `.github/workflows/publish-mod.yml`       | Builds, attests and publishes a Minecraft mod to Modrinth, CurseForge and GitHub |
 
 A repo with a `.pre-commit-config.yaml` should call `ci-pre-commit.yml` **instead of**
 `ci-workflows.yml` and `ci-gitleaks.yml`, not alongside them. Those two download actionlint,
