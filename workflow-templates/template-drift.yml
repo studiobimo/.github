@@ -1,0 +1,29 @@
+name: Template drift
+
+# Starter: once a week, compares this repository with the project template it was
+# created from and keeps one issue open while they differ. The issue is rewritten in
+# place and closes itself when the repository is back in step.
+#
+# The comparison is this repository's own .devtools/scripts/template-sync.sh, which the
+# template ships; `make -C .devtools sync` applies the same changes locally.
+
+on:
+  schedule:
+    # Monday morning, off the hour: scheduled runs queue up at :00.
+    - cron: '17 6 * * 1'
+  workflow_dispatch:
+
+permissions: {}
+
+concurrency:
+  group: ${{ github.workflow }}
+  cancel-in-progress: false
+
+jobs:
+  drift:
+    # A called workflow can never hold more than its caller, so the caller has to
+    # grant what it needs. `permissions: {}` above keeps every other job at nothing.
+    permissions:
+      contents: read
+      issues: write
+    uses: studiobimo/.github/.github/workflows/ci-template-drift.yml@v1
