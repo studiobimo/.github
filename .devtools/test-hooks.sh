@@ -85,6 +85,13 @@ expect fail "blocks 21 files, explicit refs" "${size}" --base main --head feat/b
 expect pass "measures a layer against PR_BASE" env PR_BASE=feat/small "${size}"
 expect pass "measures a layer against --base" "${size}" --base feat/small
 
+# A stale local default branch: origin has since gained what feat/small added, so
+# only the one file from feat/big is this branch's own.
+git update-ref refs/remotes/origin/main feat/small
+expect pass "prefers origin for a worked-out default branch" "${size}"
+expect fail "keeps a named base local" "${size}" --base main
+git update-ref -d refs/remotes/origin/main
+
 expect fail "fails when a named base is missing" "${size}" --base no-such-branch
 git branch --quiet -m main trunk
 expect pass "skips when a guessed base is missing" "${size}"
