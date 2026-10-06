@@ -6,8 +6,9 @@ Instructions for AI coding agents working in this repo.
 
 Org-wide CI for [studiobimo](https://github.com/studiobimo): reusable workflows under
 `.github/workflows/`, composite actions under `.github/actions/<name>/`, shared check scripts
-under `.devtools/`. Nothing here is application code; everything here runs in other
-repositories' CI.
+under `.devtools/`, and the pre-commit hooks in `.pre-commit-hooks.yaml` that expose those scripts
+to consumers' git hooks. Nothing here is application code; everything here runs in other
+repositories' CI or on their contributors' machines.
 
 Consumers: `studiobimo/tallyhopper` (Minecraft mod, Java/Gradle) is the first.
 
@@ -57,6 +58,11 @@ What that cannot cover is anything that only differs cross-repo — above all wh
 resolves to this repository rather than the caller's, and whether a first-party action ref is
 pinned in a form a consumer will accept. For those, point a consumer repo's wrapper at your branch
 SHA and open a draft PR there.
+
+The check scripts have their own test, `bash .devtools/test-hooks.sh`, which `self-lint` runs.
+They are called two ways — by `ci-pr` with explicit arguments and by pre-commit with none — so a
+change to one has to keep both working. Try a hook end to end from a consumer checkout with
+`pre-commit try-repo <path-to-this-repo> <hook-id> --hook-stage manual`.
 
 Say in the PR which one you did. "It should work" is not a test result.
 

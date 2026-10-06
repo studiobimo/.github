@@ -1,14 +1,16 @@
 #!/usr/bin/env bash
-# Fails when a pull request changes more files than a PR may contain.
+# Fails when a branch changes more files than a pull request may contain.
 #
-# Usage: check-pr-size.sh --base <ref> --head <ref> [--max <n>]
+# Usage: check-pr-size.sh [--base <ref>] [--head <ref>] [--max <n>]
 #
-# For a stacked PR the base is the layer below it, so each layer is measured on
-# its own rather than accumulating the whole stack. GitHub already sets the PR's
-# base to the parent branch, so nothing special is needed here.
+# Two callers, one script. ci-pr passes both ends of the pull request. The
+# `pr-size` pre-commit hook passes nothing, so the base is worked out here:
+# $PR_BASE, then the branch below this one in a gh stack, then the remote's
+# default branch.
 #
-# Canonical copy. Repos keep a local copy for their git hooks until the
-# pre-commit hook repo exists (studiobimo/.github#10); keep the two in step.
+# Either way a stacked branch is measured against the layer below it, so each
+# layer is counted on its own rather than accumulating the whole stack. On a
+# pull request GitHub has already set the base to the parent branch.
 set -euo pipefail
 
 max="${PR_MAX_FILES:-20}"
@@ -36,12 +38,26 @@ while [[ $# -gt 0 ]]; do
     esac
 done
 
-if [[ -z "${base}" ]]; then
-    echo "✖ --base is required" >&2
-    exit 64
-fi
+stack_parent() {
+    command -v gh >/dev/null 2>&1 || return 0
+    command -v jq >/dev/null 2>&1 || return 0
+    local branch
+    branch="$(git symbolic-ref --quiet --short HEAD 2>/dev/null || true)"
+    [[ -n "${branch}" ]] || return 0
+    # `gh stack view --json` lists branches bottom-to-top; a layer's base is the one below it.
+    gh stack view --json 2>/dev/null | jq -r --arg b "${branch}" '
+        ([.branches[].name] | index($b)) as $i
+        | if $i == null then empty
+        elif $i == 0 then .trunk
+        else .branches[$i - 1].name end' 2>/dev/null || true
+}
+
+default_branch() {
+    git symbolic-ref --quiet --short refs/remotes/origin/HEAD 2>/dev/null | sed 's#^origin/##' || true
+}
 
 resolve() {
+    # Prefer the local ref (a stack's parents are local branches), fall back to origin.
     if git rev-parse --verify --quiet "$1" >/dev/null; then
         printf '%s' "$1"
     elif git rev-parse --verify --quiet "origin/$1" >/dev/null; then
@@ -49,10 +65,24 @@ resolve() {
     fi
 }
 
+# A base nobody named is a guess, and a wrong guess must not block a push: CI
+# measures the real pull request. A base somebody named has to resolve.
+guessed=false
+if [[ -z "${base}" ]]; then
+    guessed=true
+    base="$(stack_parent)"
+    [[ -n "${base}" ]] || base="$(default_branch)"
+    [[ -n "${base}" ]] || base="main"
+fi
+
 base_ref="$(resolve "${base}")"
 head_resolved="$(resolve "${head_ref}")"
 
 if [[ -z "${base_ref}" || -z "${head_resolved}" ]]; then
+    if [[ "${guessed}" == true ]]; then
+        echo "⚠ Base '${base}' not found; skipping PR size check." >&2
+        exit 0
+    fi
     echo "✖ Cannot resolve ${base}...${head_ref}; fetch both refs first." >&2
     exit 1
 fi
@@ -73,9 +103,9 @@ if ((count <= max)); then
 fi
 
 cat >&2 <<MSG
-✖ This PR changes ${count} files (max ${max}).
+✖ This branch changes ${count} files vs ${base_ref} (max ${max}).
 
-    Split it into a stack:
+    Split it into a stack of smaller PRs:
     gh extension install github/gh-stack   # once
     gh stack init <first-branch>           # or adopt existing branches
     gh stack add <next-branch>             # commit a slice, repeat

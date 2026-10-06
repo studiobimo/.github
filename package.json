@@ -13,6 +13,7 @@
     "format": "prettier --write .",
     "format:check": "prettier --check .",
     "check:action-pins": "sh .devtools/check-action-pins.sh",
+    "test:hooks": "bash .devtools/test-hooks.sh",
     "commitlint": "commitlint",
     "prepare": "lefthook install"
   },

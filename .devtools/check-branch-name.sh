@@ -1,13 +1,15 @@
 #!/usr/bin/env bash
 # Validates a branch name against Conventional Branch (https://conventionalbranch.org/).
 #
-# Usage: check-branch-name.sh [branch]   (defaults to the current branch)
+# Usage: check-branch-name.sh [branch]
 #
-# Canonical copy. Repos keep a local copy for their git hooks until the
-# pre-commit hook repo exists (studiobimo/.github#10); keep the two in step.
+# The branch is the argument, then $BRANCH_NAME, then the current branch. The
+# variable exists for the `conventional-branch` pre-commit hook: pre-commit cannot
+# pass a per-run argument, and a guard checking `git switch -c <name>` has to
+# validate a branch that does not exist yet.
 set -euo pipefail
 
-branch="${1:-$(git symbolic-ref --quiet --short HEAD 2>/dev/null || true)}"
+branch="${1:-${BRANCH_NAME:-$(git symbolic-ref --quiet --short HEAD 2>/dev/null || true)}}"
 
 # Detached HEAD (e.g. during rebase) has nothing to validate.
 if [[ -z "${branch}" ]]; then
@@ -45,7 +47,7 @@ cat >&2 <<MSG
     Format:  <type>/<description>
     Types:   ${types//|/, }
     Rules:   lowercase a-z, 0-9 and single hyphens; dots only in release versions
-    Example: feat/offline-credit, fix/backlog-overflow, release/v1.2.0
+    Example: feat/cursor-pagination, fix/login-timeout, release/v1.2.0
 
     Rename with: git branch -m <new-name>
     Spec: https://conventionalbranch.org/

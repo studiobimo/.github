@@ -6,8 +6,9 @@
 #   check-conventional-commit.sh "feat(api): add pagination"
 #   check-conventional-commit.sh --file .git/COMMIT_EDITMSG
 #
-# The type list matches the `conventional-pre-commit` hook the repos run locally,
-# so a message that passes the git hook passes here and vice versa.
+# ci-pr runs this on the pull request title and on every commit; the
+# `conventional-commit` pre-commit hook runs it on the message being written. One
+# script, so a message that passes the git hook passes CI and vice versa.
 set -euo pipefail
 
 TYPES='build|chore|ci|docs|feat|fix|perf|refactor|revert|style|test'
