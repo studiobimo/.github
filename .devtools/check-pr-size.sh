@@ -6,7 +6,8 @@
 # Two callers, one script. ci-pr passes both ends of the pull request. The
 # `pr-size` pre-commit hook passes nothing, so the base is worked out here:
 # $PR_BASE, then the branch below this one in a gh stack, then the remote's
-# default branch.
+# default branch. A default branch that was worked out is read from origin, since
+# the local copy only moves on a pull.
 #
 # Either way a stacked branch is measured against the layer below it, so each
 # layer is counted on its own rather than accumulating the whole stack. On a
@@ -65,17 +66,36 @@ resolve() {
     fi
 }
 
+resolve_remote_first() {
+    if git rev-parse --verify --quiet "origin/$1" >/dev/null; then
+        printf 'origin/%s' "$1"
+    else
+        resolve "$1"
+    fi
+}
+
 # A base nobody named is a guess, and a wrong guess must not block a push: CI
 # measures the real pull request. A base somebody named has to resolve.
 guessed=false
+default=""
 if [[ -z "${base}" ]]; then
     guessed=true
+    default="$(default_branch)"
+    [[ -n "${default}" ]] || default="main"
     base="$(stack_parent)"
-    [[ -n "${base}" ]] || base="$(default_branch)"
-    [[ -n "${base}" ]] || base="main"
+    [[ -n "${base}" ]] || base="${default}"
 fi
 
-base_ref="$(resolve "${base}")"
+# Nobody commits to the default branch locally, so the local copy is as old as
+# the last pull. A branch cut from a fresher origin then counts every file the
+# default branch gained in between as its own. origin's copy is what the pull
+# request is measured against, so it wins here; a stack's parent and a named
+# base stay local-first.
+if [[ "${guessed}" == true && "${base}" == "${default}" ]]; then
+    base_ref="$(resolve_remote_first "${base}")"
+else
+    base_ref="$(resolve "${base}")"
+fi
 head_resolved="$(resolve "${head_ref}")"
 
 if [[ -z "${base_ref}" || -z "${head_resolved}" ]]; then
