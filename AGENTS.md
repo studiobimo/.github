@@ -18,8 +18,7 @@ Tooling: mise pins every tool (`mise.toml`, `mise.lock`), lefthook runs the hook
 `@commitlint/config-conventional` plus this repo's scopes (`.commitlintrc.yaml`). pnpm and `package.json` exist
 only for semantic-release. This repo releases with semantic-release, not release-please like
 the projects: it has no version file or changelog to maintain, and `release.yml` has to move the
-floating `v1` tag. `.pre-commit-hooks.yaml` and `ci-pre-commit.yml` are deprecated and stay
-until no consumer uses them.
+floating `v1` tag.
 
 ## Non-negotiables
 

@@ -4,7 +4,7 @@
 # Usage: check-pr-size.sh [--base <ref>] [--head <ref>] [--max <n>]
 #
 # Two callers, one script. ci-pr passes both ends of the pull request. The
-# `pr-size` pre-commit hook passes nothing, so the base is worked out here:
+# `pr-size` lefthook job passes nothing, so the base is worked out here:
 # $PR_BASE, then the branch below this one in a gh stack, then the remote's
 # default branch. A default branch that was worked out is read from origin, since
 # the local copy only moves on a pull.

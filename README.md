@@ -16,17 +16,16 @@ everywhere at once.
 | `.github/workflows/ci-go.yml`             | Go modules, formatting, golangci-lint, race tests, coverage, govulncheck and build |
 | `.github/workflows/ci-workflows.yml`      | actionlint, zizmor and shellcheck over a repo's own workflows                      |
 | `.github/workflows/ci-lint.yml`           | A repo's own lefthook hooks, over the whole tree, with the tools mise pins         |
-| `.github/workflows/ci-pre-commit.yml`     | Deprecated, use `ci-lint.yml`. A repo's own pre-commit hooks                       |
 | `.github/workflows/ci-gitleaks.yml`       | Secret scan of what a pull request adds                                            |
 | `.github/workflows/ci-template-drift.yml` | Compares a repo with the project template and tracks the difference in one issue   |
 | `.github/workflows/release-please.yml`    | Grooms a release pull request from Conventional Commits, then tags and releases    |
 | `.github/workflows/publish-mod.yml`       | Builds, attests and publishes a Minecraft mod to Modrinth, CurseForge and GitHub   |
 
-A repo with a `.pre-commit-config.yaml` should call `ci-pre-commit.yml` **instead of**
-`ci-workflows.yml` and `ci-gitleaks.yml`, not alongside them. Those two download actionlint,
-zizmor, shellcheck and gitleaks for repos that have no pre-commit config; a repo that has one
-already pins the same four by frozen `rev:`, so calling both runs them twice at two sets of
-version numbers that drift. One source of truth per repo.
+A repo with a `lefthook.yml` should call `ci-lint.yml` **instead of** `ci-workflows.yml` and
+`ci-gitleaks.yml`, not alongside them. Those two download actionlint, zizmor, shellcheck and
+gitleaks for repos that have no hooks of their own; a repo that has them already pins the same
+four in `mise.toml`, so calling both runs them twice at two sets of version numbers that drift.
+One source of truth per repo.
 
 Every `ci-*` file is `on: workflow_call` — library code, not something that runs on this repo's
 own pull requests. The `self-*` files are this repo's thin callers of them, which is how the
@@ -55,18 +54,23 @@ tool with [mise](https://mise.jdx.dev/). A repository's own `lefthook.yml` holds
 
 The org's own rules come from here. [`lefthook/org.yml`](lefthook/org.yml) checks the branch name
 and the pull request size on push, with the scripts `ci-pr.yml` runs, so what passes locally
-passes on the pull request. A repository pulls it in by tag:
+passes on the pull request. A repository pulls it in at the floating `v1` tag, the one the
+workflows are called at:
 
 ```yaml
 # lefthook.yml
 remotes:
   - git_url: https://github.com/studiobimo/.github
-    ref: v1.9.0
+    ref: v1
+    refetch_frequency: 24h
     configs:
       - lefthook/org.yml
 ```
 
-lefthook fetches a remote once per `ref`, so pin a release tag there, never the floating `v1`.
+lefthook fetches a remote once per `ref` unless it is told to look again, so `refetch_frequency`
+is what lets a moved `v1` reach the hooks: at most once a day. A fix here then lands in the hooks
+and in CI together. `remotes` is only read from a repository's root `lefthook.yml`, not from a file
+it `extends`.
 
 Two environment variables make the checks usable from a script, such as an agent guard that has
 to judge a command before it runs:
@@ -84,37 +88,10 @@ PR_BASE=main lefthook run pre-push --job pr-size
 whose remote is gone and whose work is in: the tip is an ancestor of the default branch, or, for a
 squash merge, `gh` reports a merged pull request with exactly that head. A branch checked out in
 any worktree, or one it cannot show to be merged, is kept and named. Run it with `--dry-run` to
-see what it would do. A repository gets the hook once it bumps `ref` and runs `lefthook install`.
+see what it would do. A repository gets the hook the next time it runs `lefthook install`.
 
 Commit messages are not part of `org.yml`: each repository runs commitlint against its own
 `.commitlintrc.yaml` in a `commit-msg` job, and `ci-pr.yml` reads the same file.
-
-## Pre-commit hooks (deprecated)
-
-This repo is still a [pre-commit](https://pre-commit.com/) hook repo for the repositories that
-have not moved to lefthook yet. It goes away when the last one has.
-
-| Hook id               | Stage                | What it checks                                                 |
-| --------------------- | -------------------- | -------------------------------------------------------------- |
-| `conventional-commit` | `commit-msg`         | The commit subject is a Conventional Commit                    |
-| `conventional-branch` | `pre-push`, `manual` | The branch name follows Conventional Branch                    |
-| `pr-size`             | `pre-push`, `manual` | The branch changes at most 20 files against the layer below it |
-
-```yaml
-# .pre-commit-config.yaml
-default_install_hook_types: [pre-commit, commit-msg, pre-push]
-repos:
-  - repo: https://github.com/studiobimo/.github
-    rev: <full-sha> # frozen: v1.5.0
-    hooks:
-      - id: conventional-commit
-      - id: conventional-branch
-      - id: pr-size
-```
-
-Pin `rev:` to a release SHA with the version in a `frozen:` comment; Dependabot's `pre-commit`
-ecosystem bumps both. The floating `v1` tag is for workflows only: pre-commit caches a hook repo by
-`rev`, so a moving tag would never be re-fetched.
 
 ## Calling them
 
