@@ -1,0 +1,37 @@
+{
+  "name": "checks-project",
+  "target": "branch",
+  "enforcement": "active",
+  "conditions": {
+    "ref_name": {
+      "include": ["~DEFAULT_BRANCH"],
+      "exclude": []
+    }
+  },
+  "bypass_actors": [
+    {
+      "actor_id": 5,
+      "actor_type": "RepositoryRole",
+      "bypass_mode": "pull_request"
+    }
+  ],
+  "rules": [
+    {
+      "type": "required_status_checks",
+      "parameters": {
+        "strict_required_status_checks_policy": false,
+        "do_not_enforce_on_create": true,
+        "required_status_checks": [
+          {
+            "context": "pr-checks / Title, branch, size, commits",
+            "integration_id": 15368
+          },
+          {
+            "context": "lint / pre-commit",
+            "integration_id": 15368
+          }
+        ]
+      }
+    }
+  ]
+}

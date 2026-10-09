@@ -7,8 +7,10 @@ Instructions for AI coding agents working in this repo.
 Org-wide CI for [studiobimo](https://github.com/studiobimo): reusable workflows under
 `.github/workflows/`, composite actions under `.github/actions/<name>/`, shared check scripts
 under `.devtools/`, and the pre-commit hooks in `.pre-commit-hooks.yaml` that expose those scripts
-to consumers' git hooks. Nothing here is application code; everything here runs in other
-repositories' CI or on their contributors' machines.
+to consumers' git hooks. `rulesets/` and `settings/` hold the branch rules and repository
+settings every repo shares; `.devtools/repo-settings.sh` checks and applies them. Nothing here is
+application code; everything here runs in other repositories' CI or on their contributors'
+machines.
 
 Consumers: `studiobimo/tallyhopper` (Minecraft mod, Java/Gradle) is the first.
 
