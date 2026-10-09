@@ -1,0 +1,8 @@
+{
+  "name": "CI — Go",
+  "description": "Runs the centralized ci-go, ci-workflows and ci-gitleaks reusables on every pull request. Trim the jobs this repo does not need.",
+  "creator": "studiobimo",
+  "iconName": "checklist",
+  "categories": ["Continuous integration", "Go"],
+  "filePatterns": ["go.mod$"]
+}

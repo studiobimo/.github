@@ -1,0 +1,174 @@
+name: CI (Go)
+
+# The toolchain-level check for a Go module: tidy modules, formatting, lint, tests
+# with the race detector, a vulnerability scan and a build. Repos call it from a thin
+# wrapper, so a fix here lands everywhere at once.
+#
+# go.mod is the source of truth for the Go version. golangci-lint and govulncheck are
+# run with `go run <pkg>@<version>` rather than downloaded as binaries: a linter built
+# with an older Go than the code it reads refuses to run, and building it with the
+# module's own toolchain rules that out. The Go checksum database verifies what is
+# fetched, and the same command works on a developer's machine, so local and CI
+# results match.
+#
+# Nothing here reads a secret, so it is safe on pull requests from forks.
+#
+#   jobs:
+#     go:
+#       permissions:
+#         contents: read
+#       uses: studiobimo/.github/.github/workflows/ci-go.yml@v1
+
+on:
+  workflow_call:
+    inputs:
+      working-directory:
+        description: Directory holding go.mod.
+        type: string
+        required: false
+        default: .
+      go-version-file:
+        description: File that names the Go version, relative to working-directory.
+        type: string
+        required: false
+        default: go.mod
+      golangci-lint-version-file:
+        description: >-
+          File holding the golangci-lint version (for example v2.14.0), relative to
+          working-directory, so local runs and CI share one pin. Empty to disable.
+        type: string
+        required: false
+        default: .golangci-lint-version
+      golangci-lint-version:
+        description: golangci-lint version, used when golangci-lint-version-file does not exist.
+        type: string
+        required: false
+        default: v2.14.0
+      govulncheck-version:
+        description: govulncheck version. Empty skips the vulnerability scan.
+        type: string
+        required: false
+        default: v1.8.0
+      packages:
+        description: Package pattern to lint, test and build.
+        type: string
+        required: false
+        default: ./...
+      test-args:
+        description: Extra arguments for `go test`, space separated.
+        type: string
+        required: false
+        default: -race
+      runs-on:
+        description: Runner label.
+        type: string
+        required: false
+        default: ubuntu-latest
+      timeout-minutes:
+        description: Job timeout. The linter compiles from source on a cold cache.
+        type: number
+        required: false
+        default: 20
+
+permissions: {}
+
+jobs:
+  check:
+    name: Go
+    runs-on: ${{ inputs.runs-on }}
+    timeout-minutes: ${{ inputs.timeout-minutes }}
+    permissions:
+      contents: read
+    defaults:
+      run:
+        working-directory: ${{ inputs.working-directory }}
+    env:
+      PACKAGES: ${{ inputs.packages }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: ${{ inputs.working-directory }}/${{ inputs.go-version-file }}
+          cache-dependency-path: |
+            ${{ inputs.working-directory }}/go.sum
+            ${{ inputs.working-directory }}/go.mod
+
+      # One file is the source of truth for the linter version, shared with the
+      # repo's Makefile. The input is the fallback.
+      - name: Resolve the golangci-lint version
+        id: lint
+        env:
+          VERSION_FILE: ${{ inputs.golangci-lint-version-file }}
+          FALLBACK: ${{ inputs.golangci-lint-version }}
+        run: |
+          if [ -n "${VERSION_FILE}" ] && [ -f "${VERSION_FILE}" ]; then
+            version="$(tr -d '[:space:]' < "${VERSION_FILE}")"
+            echo "Using ${VERSION_FILE}: ${version}"
+          else
+            version="${FALLBACK}"
+            echo "Using the golangci-lint-version input: ${version}"
+          fi
+          echo "run=go run github.com/golangci/golangci-lint/v2/cmd/golangci-lint@${version}" >> "${GITHUB_OUTPUT}"
+
+      - name: Modules are verified and tidy
+        run: |
+          go mod verify
+          go mod tidy -diff
+
+      - name: Format
+        env:
+          GOLANGCI_LINT: ${{ steps.lint.outputs.run }}
+        run: |
+          # shellcheck disable=SC2086 # a command line and a package pattern, split deliberately
+          ${GOLANGCI_LINT} fmt --diff ${PACKAGES}
+
+      - name: Lint
+        env:
+          GOLANGCI_LINT: ${{ steps.lint.outputs.run }}
+        run: |
+          # shellcheck disable=SC2086 # a command line and a package pattern, split deliberately
+          ${GOLANGCI_LINT} run ${PACKAGES}
+
+      - name: Test
+        env:
+          TEST_ARGS: ${{ inputs.test-args }}
+        run: |
+          read -ra args <<< "${TEST_ARGS}"
+          go test "${args[@]}" -covermode=atomic -coverprofile="${RUNNER_TEMP}/coverage.out" "${PACKAGES}"
+
+      # Always: a failed run is exactly when the numbers are worth reading.
+      - name: Summarise coverage
+        if: always()
+        run: |
+          profile="${RUNNER_TEMP}/coverage.out"
+          if [ ! -s "${profile}" ]; then
+            echo "No coverage profile was written." >> "${GITHUB_STEP_SUMMARY}"
+            exit 0
+          fi
+          {
+            echo "### Go test coverage"
+            echo
+            echo '```text'
+            go tool cover -func="${profile}" | tail -n 1
+            echo '```'
+            echo
+            echo "<details><summary>Per function</summary>"
+            echo
+            echo '```text'
+            go tool cover -func="${profile}"
+            echo '```'
+            echo
+            echo "</details>"
+          } >> "${GITHUB_STEP_SUMMARY}"
+
+      - name: Vulnerability scan
+        if: inputs.govulncheck-version != ''
+        env:
+          GOVULNCHECK_VERSION: ${{ inputs.govulncheck-version }}
+        run: go run "golang.org/x/vuln/cmd/govulncheck@${GOVULNCHECK_VERSION}" "${PACKAGES}"
+
+      - name: Build
+        run: go build "${PACKAGES}"
