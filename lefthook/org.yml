@@ -11,6 +11,9 @@
 #
 # The scripts need bash and git; pr-size also uses gh and jq when they are present,
 # to find a stack's parent. Set BRANCH_NAME to check a name that is not checked out.
+#
+# post-merge tidies up after a merged pull request: on the default branch it deletes the
+# local branches whose remote is gone and whose work is in, and keeps the rest.
 
 pre-push:
   jobs:
@@ -20,4 +23,10 @@ pre-push:
 
     - name: pr-size
       script: pr-size.sh
+      runner: bash
+
+post-merge:
+  jobs:
+    - name: prune-branches
+      script: prune-branches.sh
       runner: bash
