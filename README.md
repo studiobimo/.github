@@ -1,5 +1,7 @@
 # studiobimo/.github
 
+[![Release](https://github.com/studiobimo/.github/actions/workflows/release.yml/badge.svg?branch=main)](https://github.com/studiobimo/.github/actions/workflows/release.yml)
+
 Reusable workflows, composite actions and org defaults for [studiobimo](https://github.com/studiobimo).
 
 Repositories here call these instead of copying CI into every project, so a fix to a check lands
