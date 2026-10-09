@@ -69,6 +69,39 @@ printf 'handled an empty diff\n' >"${work}/MSG_BAD"
 expect pass "reads a good message with --file" "${commit}" --file "${work}/MSG_OK"
 expect fail "reads a bad message with --file" "${commit}" --file "${work}/MSG_BAD"
 
+# The repo fixture has no .commitlintrc.yaml, so these run on the default rules alone.
+echo "pr-checks/lint.mjs"
+lint=(node "${here}/../.github/actions/pr-checks/lint.mjs")
+[[ -d "${here}/../.github/actions/pr-checks/node_modules" ]] || {
+    echo "✖ run: npm ci --prefix .github/actions/pr-checks --ignore-scripts" >&2
+    exit 2
+}
+expect pass "accepts a scoped subject" "${lint[@]}" 'feat(api): add cursor pagination'
+expect pass "accepts a breaking change" "${lint[@]}" 'fix!: drop support for Node 18'
+expect pass "accepts a generated merge" "${lint[@]}" "Merge branch 'main' into feat/x"
+expect pass "accepts a long Dependabot title" "${lint[@]}" \
+    'chore(deps): bump check-jsonschema from 0.38.0 to 0.38.2 in /.devtools in the devtools group across 1 directory'
+expect pass "accepts any body" "${lint[@]}" "$(cat "${work}/MSG_OK")"
+expect fail "rejects an unknown type" "${lint[@]}" 'feature: add pagination'
+expect fail "rejects a missing description" "${lint[@]}" 'feat:'
+expect fail "rejects a subject with no type" "${lint[@]}" 'handled an empty diff'
+expect pass "accepts any scope without a config" "${lint[@]}" 'feat(anything): add a thing'
+
+mkdir "${work}/scoped"
+cd "${work}/scoped"
+printf 'rules:\n  scope-enum: [2, always, [api, docs]]\n' >.commitlintrc.yaml
+expect pass "accepts a scope the repository lists" "${lint[@]}" 'feat(api): add a thing'
+expect pass "accepts no scope" "${lint[@]}" 'feat: add a thing'
+expect fail "rejects a scope the repository does not list" "${lint[@]}" 'feat(nope): add a thing'
+expect fail "keeps the default rules next to the repository's" "${lint[@]}" 'feature(api): add a thing'
+
+# A config can name JavaScript to load. On a pull request that file is the author's.
+printf 'extends: [./run.cjs]\nplugins: [./run.cjs]\nparserPreset: ./run.cjs\n' >.commitlintrc.yaml
+printf 'require("fs").writeFileSync("%s/RAN", ""); module.exports = {};\n' "${work}" >run.cjs
+expect pass "lints with a config that names a script" "${lint[@]}" 'feat: add a thing'
+expect fail "and never runs the script" test -e "${work}/RAN"
+cd "${work}/repo"
+
 echo "check-pr-size"
 size="${here}/check-pr-size.sh"
 git switch --quiet -c feat/small

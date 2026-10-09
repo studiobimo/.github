@@ -59,7 +59,9 @@ resolves to this repository rather than the caller's, and whether a first-party 
 pinned in a form a consumer will accept. For those, point a consumer repo's wrapper at your branch
 SHA and open a draft PR there.
 
-The check scripts have their own test, `bash .devtools/test-hooks.sh`, which `self-lint` runs.
+The check scripts have their own test, `bash .devtools/test-hooks.sh`, which `self-lint` runs. It
+also covers `pr-checks/lint.mjs`, so run `npm ci --prefix .github/actions/pr-checks --ignore-scripts`
+first.
 They are called two ways — by `ci-pr` with explicit arguments and by pre-commit with none — so a
 change to one has to keep both working. Try a hook end to end from a consumer checkout with
 `pre-commit try-repo <path-to-this-repo> <hook-id> --hook-stage manual`.

@@ -11,8 +11,12 @@ name: ci-pr
 # always match the version the caller pinned, with no second checkout and no
 # self-referential SHA to keep updating.
 #
-# Nothing here reads a secret, and the pull request's code is only ever read by
-# git, never executed.
+# Titles and commits are linted with commitlint. A repository narrows the rules, most
+# often to its own scopes, with a .commitlintrc.yaml at its root; only `rules` is read
+# from it.
+#
+# Nothing here reads a secret, and the pull request's code is only ever read as
+# data, by git and by the YAML parser, never executed.
 
 on:
   workflow_call:

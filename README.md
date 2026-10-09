@@ -93,6 +93,22 @@ jobs:
       max-files: 20
 ```
 
+`ci-pr` lints the pull request title and every commit with
+[commitlint](https://commitlint.js.org/). With nothing else, that means a known type, an optional
+lowercase scope and a description. A repository tightens it with a `.commitlintrc.yaml` at its
+root, most often to make its own scopes the only ones allowed:
+
+```yaml
+# .commitlintrc.yaml
+rules:
+  scope-enum: [2, always, [api, docs, deps]]
+```
+
+Only `rules` is read from that file, and a rule named there replaces the default of the same
+name. `extends`, `plugins` and `parserPreset` are ignored, because each can name a script and on
+a pull request that script would be the author's. The defaults are in
+[`commitlint.default.yaml`](.github/actions/pr-checks/commitlint.default.yaml).
+
 A **composite action** is different — reference it by full path and full SHA:
 
 ```yaml
@@ -173,6 +189,7 @@ One caveat. Templates are not audited by zizmor — it only collects files under
 
 ```sh
 sh .devtools/install-hooks.sh
+npm ci --prefix .github/actions/pr-checks --ignore-scripts   # the commitlint ci-pr installs
 bash .devtools/test-hooks.sh   # the check scripts behind ci-pr and the pre-commit hooks
 ```
 
