@@ -79,6 +79,13 @@ jobs:
     timeout-minutes: ${{ inputs.timeout-minutes }}
     permissions:
       contents: read
+    # Pushing again to a pull request supersedes the run in flight, so it is cancelled rather
+    # than billed to the end. Only pull requests cancel: a push to the default branch, a
+    # merge group and a schedule always finish. `github.workflow` is the caller's name, and
+    # the library suffix keeps this group distinct from any the caller declares itself.
+    concurrency:
+      group: ci-go-${{ github.workflow }}-${{ github.ref }}
+      cancel-in-progress: ${{ github.event_name == 'pull_request' }}
     defaults:
       run:
         working-directory: ${{ inputs.working-directory }}

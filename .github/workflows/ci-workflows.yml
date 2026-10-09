@@ -44,6 +44,13 @@ jobs:
     timeout-minutes: 15
     permissions:
       contents: read
+    # Pushing again to a pull request supersedes the run in flight, so it is cancelled rather
+    # than billed to the end. Only pull requests cancel: a push to the default branch, a
+    # merge group and a schedule always finish. `github.workflow` is the caller's name, and
+    # the library suffix keeps this group distinct from any the caller declares itself.
+    concurrency:
+      group: ci-workflows-actionlint-${{ github.workflow }}-${{ github.ref }}
+      cancel-in-progress: ${{ github.event_name == 'pull_request' }}
     env:
       ACTIONLINT_VERSION: ${{ inputs.actionlint-version }}
     steps:
@@ -73,6 +80,10 @@ jobs:
     timeout-minutes: 15
     permissions:
       contents: read
+    # See the actionlint job: a superseded pull request run is cancelled, nothing else is.
+    concurrency:
+      group: ci-workflows-zizmor-${{ github.workflow }}-${{ github.ref }}
+      cancel-in-progress: ${{ github.event_name == 'pull_request' }}
     env:
       ZIZMOR_VERSION: ${{ inputs.zizmor-version }}
       ZIZMOR_PERSONA: ${{ inputs.zizmor-persona }}
