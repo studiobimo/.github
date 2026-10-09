@@ -74,8 +74,14 @@ jobs:
           sha="$(git rev-list -n1 "${latest}")"
           echo "Pointing ${major} at ${latest} (${sha})"
 
-          # PATCH fails if the ref does not exist yet, so create it the first time.
-          if gh api "repos/${GITHUB_REPOSITORY}/git/ref/tags/${major}" >/dev/null 2>&1; then
+          # PATCH fails if the ref does not exist yet, so create it the first time. A push
+          # that released nothing leaves the tag where it is: writing the same sha back
+          # gains nothing, and the API has answered it with a 403.
+          current="$(gh api "repos/${GITHUB_REPOSITORY}/git/ref/tags/${major}" --jq .object.sha 2>/dev/null || true)"
+          if [ "${current}" = "${sha}" ]; then
+            echo "${major} already points at ${sha}"
+            exit 0
+          elif [ -n "${current}" ]; then
             gh api -X PATCH "repos/${GITHUB_REPOSITORY}/git/refs/tags/${major}" \
               -f "sha=${sha}" -F force=true >/dev/null
           else
