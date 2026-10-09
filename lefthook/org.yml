@@ -1,11 +1,13 @@
 # The org's own rules as git hooks: the same scripts ci-pr runs on a pull request, so
 # a bad branch name or an oversized branch is caught before the push, not in review.
 #
-# A repository pulls this in by tag and never copies it:
+# A repository pulls this in at the floating v1 tag, from its root lefthook.yml, and
+# never copies it:
 #
 #   remotes:
 #     - git_url: https://github.com/studiobimo/.github
-#       ref: v1.9.0
+#       ref: v1
+#       refetch_frequency: 24h
 #       configs:
 #         - lefthook/org.yml
 #

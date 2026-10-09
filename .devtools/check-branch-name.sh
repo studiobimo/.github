@@ -4,8 +4,8 @@
 # Usage: check-branch-name.sh [branch]
 #
 # The branch is the argument, then $BRANCH_NAME, then the current branch. The
-# variable exists for the `conventional-branch` pre-commit hook: pre-commit cannot
-# pass a per-run argument, and a guard checking `git switch -c <name>` has to
+# variable exists for the `branch-name` lefthook job: a hook cannot be given a
+# per-run argument, and a guard checking `git switch -c <name>` has to
 # validate a branch that does not exist yet.
 set -euo pipefail
 

@@ -9,8 +9,8 @@ name: CI
 # This is deliberately not path-filtered: a skipped job reports no status, and a
 # required check that never reports blocks the pull request forever.
 #
-# A repo with a .pre-commit-config.yaml should call ci-pre-commit instead of the
-# `workflows` and `secrets-scan` jobs, and pass `skip:` for any Go hooks, which the
+# A repo with a lefthook.yml should call ci-lint instead of the
+# `workflows` and `secrets-scan` jobs, and pass `exclude:` for any Go jobs, which the
 # `go` job already covers.
 
 on:

@@ -31,7 +31,7 @@ An independent software studio. Studio Bimo designs and builds web products end 
 
 Most of the studio's work is for clients and lives in private repositories. What is public:
 
-- [.github](https://github.com/studiobimo/.github): the reusable workflows, composite actions and pre-commit hooks behind every repository here.
+- [.github](https://github.com/studiobimo/.github): the reusable workflows, composite actions and git hooks behind every repository here.
 - [project-template](https://github.com/studiobimo/project-template): the starting point for a new repository, in any language.
 - [Tally Hopper](https://github.com/studiobimo/tallyhopper) and [Datapacks](https://github.com/studiobimo/datapacks): Minecraft side projects, built for fun and held to the same standard.
 

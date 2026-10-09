@@ -57,17 +57,7 @@ expect pass "falls back to the current branch" "${branch}"
 expect fail "reads BRANCH_NAME" env BRANCH_NAME=Bad_Name "${branch}"
 expect pass "prefers the argument over BRANCH_NAME" env BRANCH_NAME=Bad_Name "${branch}" fix/login-timeout
 
-echo "check-conventional-commit"
-commit="${here}/check-conventional-commit.sh"
-expect pass "accepts a scoped subject" "${commit}" 'feat(api): add cursor pagination'
-expect pass "accepts a breaking change" "${commit}" 'fix!: drop support for Node 18'
-expect pass "accepts a generated merge" "${commit}" "Merge branch 'main' into feat/x"
-expect fail "rejects an unknown type" "${commit}" 'feature: add pagination'
-expect fail "rejects a missing description" "${commit}" 'feat:'
 printf 'fix(devtools): handle an empty diff\n\nA body may say anything at all.\n' >"${work}/MSG_OK"
-printf 'handled an empty diff\n' >"${work}/MSG_BAD"
-expect pass "reads a good message with --file" "${commit}" --file "${work}/MSG_OK"
-expect fail "reads a bad message with --file" "${commit}" --file "${work}/MSG_BAD"
 
 # The repo fixture has no .commitlintrc.yaml, so these run on config-conventional alone.
 echo "pr-checks/lint.mjs"
