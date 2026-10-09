@@ -69,7 +69,10 @@ permissions: {}
 
 jobs:
   pre-commit:
-    name: pre-commit
+    # Both lint workflows name this job `hooks`, so the check a ruleset requires is
+    # `<caller job> / hooks` whichever one a repository calls, and moving from
+    # ci-pre-commit to ci-lint does not strand a pull request waiting on the old name.
+    name: hooks
     runs-on: ubuntu-latest
     timeout-minutes: ${{ inputs.timeout-minutes }}
     permissions:
