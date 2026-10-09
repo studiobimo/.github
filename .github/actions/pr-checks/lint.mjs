@@ -1,6 +1,6 @@
 #!/usr/bin/env node
-// Lints one message with commitlint, against commitlint.default.yaml plus the rules
-// of the repository it runs in.
+// Lints one message with commitlint, against @commitlint/config-conventional plus the
+// rules of the repository it runs in.
 //
 // Usage, from the root of the repository being checked:
 //   lint.mjs [--label <what>] <message>
@@ -8,7 +8,8 @@
 // Only the `rules` of the repository's .commitlintrc.yaml are read. Its `extends`,
 // `plugins` and `parserPreset` can each name a JavaScript file, and on a pull request
 // that file is the author's: commitlint is given a config built here and run from an
-// empty directory, so nothing from the pull request is ever executed.
+// empty directory, so nothing from the pull request is ever executed. A repository
+// that extends config-conventional itself loses nothing, since that is the base here.
 import { spawnSync } from "node:child_process";
 import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -25,7 +26,11 @@ if (args[0] === "--label") {
 }
 const message = args[0] ?? "";
 
-const config = parse(readFileSync(join(here, "commitlint.default.yaml"), "utf8"));
+// By path, because commitlint runs from an empty directory with nothing to resolve from.
+const config = {
+  extends: [fileURLToPath(import.meta.resolve("@commitlint/config-conventional"))],
+  rules: {},
+};
 const own = [".commitlintrc.yaml", ".commitlintrc.yml"].find((file) => existsSync(file));
 if (own) {
   const rules = parse(readFileSync(own, "utf8"))?.rules ?? {};
@@ -33,7 +38,7 @@ if (own) {
     console.error(`✖ ${own}: \`rules\` has to be a mapping of rule name to setting`);
     process.exit(2);
   }
-  Object.assign(config.rules, rules);
+  config.rules = rules;
 }
 
 const work = mkdtempSync(join(tmpdir(), "commitlint-"));

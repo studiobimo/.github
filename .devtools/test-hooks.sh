@@ -69,7 +69,7 @@ printf 'handled an empty diff\n' >"${work}/MSG_BAD"
 expect pass "reads a good message with --file" "${commit}" --file "${work}/MSG_OK"
 expect fail "reads a bad message with --file" "${commit}" --file "${work}/MSG_BAD"
 
-# The repo fixture has no .commitlintrc.yaml, so these run on the default rules alone.
+# The repo fixture has no .commitlintrc.yaml, so these run on config-conventional alone.
 echo "pr-checks/lint.mjs"
 lint=(node "${here}/../.github/actions/pr-checks/lint.mjs")
 [[ -d "${here}/../.github/actions/pr-checks/node_modules" ]] || {
@@ -79,9 +79,11 @@ lint=(node "${here}/../.github/actions/pr-checks/lint.mjs")
 expect pass "accepts a scoped subject" "${lint[@]}" 'feat(api): add cursor pagination'
 expect pass "accepts a breaking change" "${lint[@]}" 'fix!: drop support for Node 18'
 expect pass "accepts a generated merge" "${lint[@]}" "Merge branch 'main' into feat/x"
-expect pass "accepts a long Dependabot title" "${lint[@]}" \
+expect pass "accepts a body" "${lint[@]}" "$(cat "${work}/MSG_OK")"
+expect fail "rejects a header over 100 characters" "${lint[@]}" \
     'chore(deps): bump check-jsonschema from 0.38.0 to 0.38.2 in /.devtools in the devtools group across 1 directory'
-expect pass "accepts any body" "${lint[@]}" "$(cat "${work}/MSG_OK")"
+expect fail "rejects a capitalised subject" "${lint[@]}" 'feat(api): Add cursor pagination'
+expect fail "rejects a subject ending in a full stop" "${lint[@]}" 'feat(api): add cursor pagination.'
 expect fail "rejects an unknown type" "${lint[@]}" 'feature: add pagination'
 expect fail "rejects a missing description" "${lint[@]}" 'feat:'
 expect fail "rejects a subject with no type" "${lint[@]}" 'handled an empty diff'
@@ -93,7 +95,7 @@ printf 'rules:\n  scope-enum: [2, always, [api, docs]]\n' >.commitlintrc.yaml
 expect pass "accepts a scope the repository lists" "${lint[@]}" 'feat(api): add a thing'
 expect pass "accepts no scope" "${lint[@]}" 'feat: add a thing'
 expect fail "rejects a scope the repository does not list" "${lint[@]}" 'feat(nope): add a thing'
-expect fail "keeps the default rules next to the repository's" "${lint[@]}" 'feature(api): add a thing'
+expect fail "keeps config-conventional next to the repository's rules" "${lint[@]}" 'feature(api): add a thing'
 
 # A config can name JavaScript to load. On a pull request that file is the author's.
 printf 'extends: [./run.cjs]\nplugins: [./run.cjs]\nparserPreset: ./run.cjs\n' >.commitlintrc.yaml

@@ -122,20 +122,27 @@ jobs:
 ```
 
 `ci-pr` lints the pull request title and every commit with
-[commitlint](https://commitlint.js.org/). With nothing else, that means a known type, an optional
-lowercase scope and a description. A repository tightens it with a `.commitlintrc.yaml` at its
-root, most often to make its own scopes the only ones allowed:
+[commitlint](https://commitlint.js.org/), against
+[`@commitlint/config-conventional`](https://github.com/conventional-changelog/commitlint/tree/master/%40commitlint/config-conventional):
+a known type, a lowercase subject with no full stop, and at most 100 characters in the header and
+in each body line. A repository adds its own rules with a `.commitlintrc.yaml` at its root, most
+often to make its scopes the only ones allowed:
 
 ```yaml
 # .commitlintrc.yaml
+extends:
+  - "@commitlint/config-conventional"
 rules:
   scope-enum: [2, always, [api, docs, deps]]
 ```
 
-Only `rules` is read from that file, and a rule named there replaces the default of the same
-name. `extends`, `plugins` and `parserPreset` are ignored, because each can name a script and on
-a pull request that script would be the author's. The defaults are in
-[`commitlint.default.yaml`](.github/actions/pr-checks/commitlint.default.yaml).
+Only `rules` is read from that file on a pull request. `extends`, `plugins` and `parserPreset`
+are ignored there, because each can name a script and that script would be the author's; the
+base is always config-conventional. The `extends` line is for the local `commit-msg` hook, which
+reads the whole file.
+
+Dependabot's pull requests are not linted. Its titles and commit bodies run past 100 characters
+and it offers no way to shorten them.
 
 A **composite action** is different — reference it by full path and full SHA:
 

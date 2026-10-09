@@ -11,9 +11,9 @@ name: ci-pr
 # always match the version the caller pinned, with no second checkout and no
 # self-referential SHA to keep updating.
 #
-# Titles and commits are linted with commitlint. A repository narrows the rules, most
-# often to its own scopes, with a .commitlintrc.yaml at its root; only `rules` is read
-# from it.
+# Titles and commits are linted with commitlint, against @commitlint/config-conventional.
+# A repository adds to the rules, most often its own scopes, with a .commitlintrc.yaml
+# at its root; only `rules` is read from it. Dependabot's pull requests are not linted.
 #
 # Nothing here reads a secret, and the pull request's code is only ever read as
 # data, by git and by the YAML parser, never executed.
@@ -52,6 +52,7 @@ jobs:
         with:
           title: ${{ github.event.pull_request.title }}
           branch: ${{ github.head_ref }}
+          author: ${{ github.event.pull_request.user.login }}
           base-sha: ${{ github.event.pull_request.base.sha }}
           head-sha: ${{ github.event.pull_request.head.sha }}
           max-files: ${{ inputs.max-files }}
