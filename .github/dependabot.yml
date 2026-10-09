@@ -7,14 +7,17 @@ updates:
   # here is SHA-pinned with a `# vX.Y.Z` comment, which Dependabot reads and updates in
   # place -- the comment is load-bearing, not decoration.
   #
-  # Grouped into one weekly PR: self-lint skips dependabot/* branches, so a wide bump is
-  # cheap, and one PR beats six.
+  # Grouped into one monthly PR: self-lint skips dependabot/* branches, so a wide bump is
+  # cheap, and one PR beats six. Monthly because every update run, and every rebase of an
+  # open PR, is a billed Actions run; security updates ignore the schedule, so nothing
+  # urgent waits.
   - package-ecosystem: github-actions
     directories:
       - /
       - /.github/actions/*
     schedule:
-      interval: weekly
+      interval: monthly
+    open-pull-requests-limit: 3
     # Do not propose a release published minutes ago. A compromised or withdrawn
     # version is usually caught within days, and without a cooldown Dependabot would
     # open the PR inside that window -- on a repo whose output every other repo runs.
@@ -34,7 +37,8 @@ updates:
       - /
       - /.github/actions/pr-checks
     schedule:
-      interval: weekly
+      interval: monthly
+    open-pull-requests-limit: 3
     cooldown:
       default-days: 7
     commit-message:
