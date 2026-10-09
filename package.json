@@ -9,23 +9,10 @@
     "type": "git",
     "url": "https://github.com/studiobimo/.github.git"
   },
-  "scripts": {
-    "format": "prettier --write .",
-    "format:check": "prettier --check .",
-    "check:action-pins": "sh .devtools/check-action-pins.sh",
-    "test:hooks": "bash .devtools/test-hooks.sh",
-    "settings:check": "bash .devtools/repo-settings.sh --check",
-    "commitlint": "commitlint",
-    "prepare": "lefthook install"
-  },
   "devDependencies": {
-    "@commitlint/cli": "^21.2.3",
-    "@commitlint/config-conventional": "^21.2.3",
     "@semantic-release/commit-analyzer": "^13.0.1",
     "@semantic-release/github": "^12.0.10",
     "@semantic-release/release-notes-generator": "^14.1.0",
-    "lefthook": "^2.1.16",
-    "prettier": "^3.9.9",
     "semantic-release": "^25.0.9"
   },
   "engines": {

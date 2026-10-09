@@ -1,17 +1,9 @@
 # Not a monorepo -- this file only carries pnpm settings (pnpm 11+ reads them here
 # instead of the package.json "pnpm" field).
 #
-# Supply-chain policy: dependency build and install scripts are DENIED by default and
-# must be approved here, one at a time, with a reason. This is the governance this repo
-# exists to spread, applied to itself -- when a new devDependency needs a build script,
-# add it with a line saying why rather than turning the check off.
+# pnpm installs one thing here: semantic-release, for release.yml. Everything else is
+# pinned in mise.toml.
 #
-# lefthook's postinstall fetches its binary and wires the local git hooks, so it is the
-# one dependency allowed to run.
-#   - onlyBuiltDependencies is the stock-pnpm approval, used by CI's corepack pnpm.
-#   - allowBuilds is the same decision in the key a Vite+ (`vp`)-provided pnpm reads, so
-#     it holds for contributors whose local toolchain is vp. Harmless to stock pnpm.
-onlyBuiltDependencies:
-  - lefthook
-allowBuilds:
-  lefthook: true
+# Supply-chain policy: dependency build and install scripts are DENIED by default and
+# must be approved here, one at a time, with a reason. Nothing needs one today.
+onlyBuiltDependencies: []

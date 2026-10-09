@@ -1,94 +1,56 @@
-# Local git hooks, managed by lefthook (installed by the package.json `prepare`
-# script, so `pnpm install` is all it takes).
+# Local git hooks. They run the same commands CI does, at the same versions:
+#   commit-msg -> Conventional Commits, with this repo's scopes (commitlint)
+#   pre-commit -> Prettier and the linters; ci-lint runs this hook over every file
+#   pre-push   -> Conventional Branch name and the PR size limit (lefthook/org.yml)
 #
-# These mirror the CI gates so a problem surfaces before a push rather than in
-# review:
-#   commit-msg -> Conventional Commits (commitlint)
-#   pre-commit -> Prettier, then the four linters ci-workflows runs
-#   pre-push   -> Conventional Branch name and the PR size limit (ci-pr)
+# Every tool is pinned in mise.toml and run through `mise exec`, so a hook works
+# whether or not the shell has mise activated, and never falls back to some other
+# version that happens to be installed.
 #
-# Prettier and commitlint are devDependencies, so they are always present. The
-# linters are system tools: the guards below warn and skip when one is missing
-# rather than blocking a commit on a machine that has not run
-# `sh .devtools/install-hooks.sh` yet. CI has no such escape hatch, which is
-# where the real gate lives.
-#
-# Each guard is an explicit `if`, not `command -v tool && tool ... || echo ...`.
-# The latter reads as "run it if present" but means "if anything fails, print
-# this and succeed" -- so a real finding exits 0 and prints "not installed",
-# which is both a silent pass and a lie about why.
+#   mise install && mise exec -- lefthook install
+
+# The rules this repo shares with every other one, dogfooded from the same file.
+extends:
+  - lefthook/org.yml
 
 commit-msg:
-  commands:
-    commitlint:
-      run: pnpm exec commitlint --edit {1}
+  jobs:
+    - name: commitlint
+      run: mise exec -- commitlint --edit {1}
 
 pre-commit:
   parallel: true
-  commands:
-    prettier:
-      glob: '*.{yml,yaml,json,md}'
-      run: pnpm exec prettier --check {staged_files}
+  jobs:
+    - name: prettier
+      glob: '*.{yml,yaml,json,md,mjs}'
+      run: mise exec -- prettier --check {staged_files}
 
-    actionlint:
+    - name: actionlint
       glob: '.github/workflows/*.{yml,yaml}'
-      run: |
-        if ! command -v actionlint >/dev/null 2>&1; then
-          echo "actionlint not installed; skipping (see .devtools/install-hooks.sh)"
-          exit 0
-        fi
-        actionlint {staged_files}
+      run: mise exec -- actionlint {staged_files}
 
     # Workflows and composite actions both: zizmor audits action.yml too, and this
     # repo's whole output is those two file kinds. The glob is `.github/**` rather
     # than `.github/{workflows,actions}/**` because the latter silently misses files
     # sitting directly in .github/workflows/ -- i.e. every workflow in the repo.
-    zizmor:
+    #
+    # Exit 3 is "no inputs collected": none of the files were a workflow or an
+    # action, which is the normal case for a commit that only touches an issue
+    # template or dependabot.yml. Findings exit 14.
+    - name: zizmor
       glob: '.github/**/*.{yml,yaml}'
-      run: |
-        if ! command -v zizmor >/dev/null 2>&1; then
-          echo "zizmor not installed; skipping (see .devtools/install-hooks.sh)"
-          exit 0
-        fi
-        # Exit 3 is "no inputs collected": none of the staged files were a
-        # workflow or an action, which is the normal case for a commit that only
-        # touches an issue template or dependabot.yml. Findings exit 14.
-        zizmor --no-progress {staged_files} || [ "$?" -eq 3 ]
+      exclude: '**/node_modules/**'
+      run: mise exec -- zizmor --no-progress {staged_files} || [ "$?" -eq 3 ]
 
-    shellcheck:
+    - name: shellcheck
       glob: '*.sh'
-      run: |
-        if ! command -v shellcheck >/dev/null 2>&1; then
-          echo "shellcheck not installed; skipping (see .devtools/install-hooks.sh)"
-          exit 0
-        fi
-        shellcheck {staged_files}
+      run: mise exec -- shellcheck {staged_files}
 
-    gitleaks:
-      run: |
-        if ! command -v gitleaks >/dev/null 2>&1; then
-          echo "gitleaks not installed; skipping (see .devtools/install-hooks.sh)"
-          exit 0
-        fi
-        gitleaks git . --redact --staged
+    - name: gitleaks
+      run: mise exec -- gitleaks git . --redact --staged
 
     # Same-repo CI cannot catch a first-party action ref pinned the wrong way --
     # GitHub's same-repo exemption hides it here and it breaks only consumers.
-    action-pins:
+    - name: action-pins
       glob: '{.github/workflows,workflow-templates}/*.{yml,yaml}'
       run: sh .devtools/check-action-pins.sh
-
-# The same two scripts ci-pr runs, and the ones `.pre-commit-hooks.yaml` offers to
-# consumers. Without them here this repo was the one place a bad branch name was
-# first reported by CI, after the pull request was already open.
-#
-# Both check the branch that is checked out, not the ref being pushed, which is
-# the same thing in every push but `git push origin <other-branch>`.
-pre-push:
-  parallel: true
-  commands:
-    branch-name:
-      run: bash .devtools/check-branch-name.sh
-
-    pr-size:
-      run: bash .devtools/check-pr-size.sh

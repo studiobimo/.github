@@ -6,13 +6,20 @@ Instructions for AI coding agents working in this repo.
 
 Org-wide CI for [studiobimo](https://github.com/studiobimo): reusable workflows under
 `.github/workflows/`, composite actions under `.github/actions/<name>/`, shared check scripts
-under `.devtools/`, and the pre-commit hooks in `.pre-commit-hooks.yaml` that expose those scripts
-to consumers' git hooks. `rulesets/` and `settings/` hold the branch rules and repository
-settings every repo shares; `.devtools/repo-settings.sh` checks and applies them. Nothing here is
-application code; everything here runs in other repositories' CI or on their contributors'
-machines.
+under `.devtools/`, and `lefthook/org.yml`, which exposes those scripts to consumers' git hooks.
+`rulesets/` and `settings/` hold the branch rules and repository settings every repo shares;
+`.devtools/repo-settings.sh` checks and applies them. Nothing here is application code;
+everything here runs in other repositories' CI or on their contributors' machines.
 
-Consumers: `studiobimo/tallyhopper` (Minecraft mod, Java/Gradle) is the first.
+Consumers: every studiobimo project, through `studiobimo/project-template`.
+
+Tooling: mise pins every tool (`mise.toml`, `mise.lock`), lefthook runs the hooks
+(`lefthook.yml`), commitlint checks commits against
+`@commitlint/config-conventional` plus this repo's scopes (`.commitlintrc.yaml`). pnpm and `package.json` exist
+only for semantic-release. This repo releases with semantic-release, not release-please like
+the projects: it has no version file or changelog to maintain, and `release.yml` has to move the
+floating `v1` tag. `.pre-commit-hooks.yaml` and `ci-pre-commit.yml` are deprecated and stay
+until no consumer uses them.
 
 ## Non-negotiables
 
@@ -45,6 +52,9 @@ Consumers: `studiobimo/tallyhopper` (Minecraft mod, Java/Gradle) is the first.
 - **Templates.** `workflow-templates/` is copied into consumers, not called by them, so it is
   the one place the SHA rule bites: `$/` there would resolve to _their_ repo. zizmor does not
   audit these files at all, so `check-action-pins` and review are the only net.
+- **Tools.** Pinned in `mise.toml`, with checksums in `mise.lock`. Dependabot does not read
+  either, so a bump is made by hand: change the version, run `mise lock`, commit `mise.toml`,
+  `mise.lock` and `.mise/locks/` together. The README has the steps.
 - **PR size:** at most 20 changed files. Split bigger work with `gh stack`.
 - **Naming.** `ci-*` is library code (`on: workflow_call`), called by consumers at `@v1`.
   `self-*` is this repo's own caller of one, invoked by local path
@@ -64,9 +74,9 @@ SHA and open a draft PR there.
 The check scripts have their own test, `bash .devtools/test-hooks.sh`, which `self-lint` runs. It
 also covers `pr-checks/lint.mjs`, so run `npm ci --prefix .github/actions/pr-checks --ignore-scripts`
 first.
-They are called two ways — by `ci-pr` with explicit arguments and by pre-commit with none — so a
-change to one has to keep both working. Try a hook end to end from a consumer checkout with
-`pre-commit try-repo <path-to-this-repo> <hook-id> --hook-stage manual`.
+They are called two ways — by `ci-pr` with explicit arguments and by the git hooks with none — so
+a change to one has to keep both working. Try the shared hooks end to end from a consumer checkout
+by pointing its `remotes` entry at your branch: `ref: <branch>` with `refetch: true`.
 
 Say in the PR which one you did. "It should work" is not a test result.
 
