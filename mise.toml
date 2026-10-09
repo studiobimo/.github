@@ -4,7 +4,8 @@
 #   mise install                    # once, and after this file changes
 #   mise exec -- lefthook install   # wire the git hooks
 #
-# After changing a version here: mise lock, and commit both files.
+# Dependabot does not read this file, so versions are bumped by hand: change one here,
+# run `mise lock`, and commit this file, mise.lock and .mise/locks/ together.
 
 [settings]
 lockfile = true
@@ -19,3 +20,4 @@ gitleaks = "8.30.1"
 zizmor = "1.30.1"
 "npm:prettier" = "3.9.9"
 "npm:@commitlint/cli" = "21.2.3"
+"npm:@commitlint/config-conventional" = "21.2.3"

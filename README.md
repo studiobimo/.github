@@ -265,8 +265,22 @@ lefthook, Prettier, commitlint, actionlint, zizmor, shellcheck and gitleaks, and
 each through `mise exec`, so they work whether or not your shell has mise activated. Nothing is
 skipped when a tool is missing: `mise install` is what makes it present.
 
-To change a tool's version, edit `mise.toml`, run `mise lock`, and commit both along with
-`.mise/locks/`. Dependabot does not read `mise.toml`, so these bumps are made by hand.
+### Bumping a tool
+
+Dependabot does not read `mise.toml`, so the tools pinned there are bumped by hand. Nothing
+reminds you; check them when you touch the file, and at least when a linter reports something
+its newer release has fixed.
+
+```sh
+mise outdated --bump            # what has a newer release
+$EDITOR mise.toml               # change the version
+mise lock                       # record the new checksums
+mise install && mise exec -- lefthook run pre-commit --all-files
+git add mise.toml mise.lock .mise/locks
+```
+
+`.mise/locks/` holds the dependency graph of each npm tool, so it is committed with the other
+two. Leave a release a week before taking it, as Dependabot's cooldown does for everything else.
 
 pnpm is only here for semantic-release, which `release.yml` runs.
 

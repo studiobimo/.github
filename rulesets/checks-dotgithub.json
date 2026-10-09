@@ -35,6 +35,10 @@
             "integration_id": 15368
           },
           {
+            "context": "lint / lefthook",
+            "integration_id": 15368
+          },
+          {
             "context": "Pins and formatting",
             "integration_id": 15368
           },

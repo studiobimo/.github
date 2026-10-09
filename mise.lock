@@ -175,6 +175,12 @@ aube = { path = ".mise/locks/npm-commitlint-cli/21.2.3", digest = "sha256:28100d
 backend = "npm:@commitlint/cli"
 specifiers = ["21.2.3"]
 
+[[tools."npm:@commitlint/config-conventional"]]
+version = "21.2.3"
+aube = { path = ".mise/locks/npm-commitlint-config-conventional/21.2.3", digest = "sha256:4e561623f49495adaafcabb36791769143e8157eb823983609aa3c75f8ea79d1" }
+backend = "npm:@commitlint/config-conventional"
+specifiers = ["21.2.3"]
+
 [[tools."npm:prettier"]]
 version = "3.9.9"
 aube = { path = ".mise/locks/npm-prettier/3.9.9", digest = "sha256:815f6667505e41ac2d03ecbac86b79f1beb78d45783879428193c9adc80760a3" }

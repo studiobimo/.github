@@ -14,7 +14,8 @@ everything here runs in other repositories' CI or on their contributors' machine
 Consumers: every studiobimo project, through `studiobimo/project-template`.
 
 Tooling: mise pins every tool (`mise.toml`, `mise.lock`), lefthook runs the hooks
-(`lefthook.yml`), commitlint checks commits (`.commitlintrc.yaml`). pnpm and `package.json` exist
+(`lefthook.yml`), commitlint checks commits against
+`@commitlint/config-conventional` plus this repo's scopes (`.commitlintrc.yaml`). pnpm and `package.json` exist
 only for semantic-release. This repo releases with semantic-release, not release-please like
 the projects: it has no version file or changelog to maintain, and `release.yml` has to move the
 floating `v1` tag. `.pre-commit-hooks.yaml` and `ci-pre-commit.yml` are deprecated and stay
@@ -51,6 +52,9 @@ until no consumer uses them.
 - **Templates.** `workflow-templates/` is copied into consumers, not called by them, so it is
   the one place the SHA rule bites: `$/` there would resolve to _their_ repo. zizmor does not
   audit these files at all, so `check-action-pins` and review are the only net.
+- **Tools.** Pinned in `mise.toml`, with checksums in `mise.lock`. Dependabot does not read
+  either, so a bump is made by hand: change the version, run `mise lock`, commit `mise.toml`,
+  `mise.lock` and `.mise/locks/` together. The README has the steps.
 - **PR size:** at most 20 changed files. Split bigger work with `gh stack`.
 - **Naming.** `ci-*` is library code (`on: workflow_call`), called by consumers at `@v1`.
   `self-*` is this repo's own caller of one, invoked by local path
