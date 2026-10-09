@@ -53,6 +53,10 @@ jobs:
 
       # ci-pr only exercises these scripts with a pull request's arguments. The
       # pre-commit hooks call them with none, and that path is tested here.
+      # The same install ci-pr does, so the test below runs the commitlint consumers get.
+      - name: Install commitlint for pr-checks
+        run: npm ci --prefix .github/actions/pr-checks --ignore-scripts --no-audit --no-fund
+
       - name: Test the check scripts
         run: bash .devtools/test-hooks.sh
 

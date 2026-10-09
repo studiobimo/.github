@@ -1,0 +1,21 @@
+# The rules every pull request is held to. A repository adds its own in a
+# .commitlintrc.yaml at its root, usually `scope-enum`; a rule named there replaces
+# the one of the same name here.
+#
+# There is no `extends`, so the commitlint CLI is the only package this needs.
+
+# commitlint's built-in pattern does not accept the `!` that marks a breaking change.
+parserPreset:
+  parserOpts:
+    headerPattern: '^(\w*)(?:\(([^)]*)\))?!?: (.*)$'
+    headerCorrespondence: [type, scope, subject]
+
+rules:
+  type-enum:
+    - 2
+    - always
+    - [build, chore, ci, docs, feat, fix, perf, refactor, revert, style, test]
+  type-case: [2, always, lower-case]
+  type-empty: [2, never]
+  scope-case: [2, always, lower-case]
+  subject-empty: [2, never]

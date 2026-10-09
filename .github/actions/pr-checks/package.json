@@ -1,0 +1,13 @@
+{
+  "name": "pr-checks",
+  "private": true,
+  "description": "Pins commitlint for the pr-checks action. The action installs this with `npm ci`.",
+  "type": "module",
+  "dependencies": {
+    "@commitlint/cli": "21.2.3",
+    "yaml": "2.9.1"
+  },
+  "engines": {
+    "node": ">=22.12.0"
+  }
+}

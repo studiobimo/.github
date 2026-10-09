@@ -27,8 +27,12 @@ updates:
         patterns:
           - '*'
 
+  # The root is this repo's own toolchain; pr-checks is the commitlint that ci-pr
+  # installs in every consumer's pull request.
   - package-ecosystem: npm
-    directory: /
+    directories:
+      - /
+      - /.github/actions/pr-checks
     schedule:
       interval: weekly
     cooldown:
