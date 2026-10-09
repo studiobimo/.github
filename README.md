@@ -79,6 +79,13 @@ PR_BASE=main lefthook run pre-push --job pr-size
 `PR_MAX_FILES` changes the limit. Without `PR_BASE` the base is the branch below this one in a
 `gh stack`, else the remote's default branch.
 
+`org.yml` also tidies up after a merge. On the default branch, `post-merge` runs
+[`prune-merged-branches.sh`](.devtools/prune-merged-branches.sh), which deletes the local branches
+whose remote is gone and whose work is in: the tip is an ancestor of the default branch, or, for a
+squash merge, `gh` reports a merged pull request with exactly that head. A branch checked out in
+any worktree, or one it cannot show to be merged, is kept and named. Run it with `--dry-run` to
+see what it would do. A repository gets the hook once it bumps `ref` and runs `lefthook install`.
+
 Commit messages are not part of `org.yml`: each repository runs commitlint against its own
 `.commitlintrc.yaml` in a `commit-msg` job, and `ci-pr.yml` reads the same file.
 

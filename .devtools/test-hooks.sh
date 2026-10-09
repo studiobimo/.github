@@ -131,6 +131,76 @@ expect fail "fails when a named base is missing" "${size}" --base no-such-branch
 git branch --quiet -m main trunk
 expect pass "skips when a guessed base is missing" "${size}"
 
+echo "prune-merged-branches"
+prune="${here}/prune-merged-branches.sh"
+
+# gh stands in for GitHub: it reports GH_MERGED_OID as the head of a merged pull request.
+mkdir "${work}/bin"
+# shellcheck disable=SC2016  # the stub expands it, not this script
+printf '#!/bin/sh\n[ -z "${GH_MERGED_OID:-}" ] || echo "${GH_MERGED_OID}"\n' >"${work}/bin/gh"
+chmod +x "${work}/bin/gh"
+mkdir "${work}/bin-fail"
+printf '#!/bin/sh\nexit 1\n' >"${work}/bin-fail/gh"
+chmod +x "${work}/bin-fail/gh"
+no_gh=(env PATH="${work}/bin-fail:${PATH}")
+
+git init --quiet --bare --initial-branch=main "${work}/origin.git"
+git clone --quiet "${work}/origin.git" "${work}/prune" 2>/dev/null
+cd "${work}/prune"
+git commit --quiet --allow-empty -m 'chore: initial commit'
+git push --quiet origin main
+git remote set-head origin main >/dev/null
+
+# branch_off <name> <file>: a pushed branch with one commit, back on main afterwards.
+branch_off() {
+    git switch --quiet -c "$1" main
+    echo "$1" >"$2"
+    git add "$2"
+    git commit --quiet -m "feat: add $2"
+    git push --quiet -u origin "$1" 2>/dev/null
+    git switch --quiet main
+}
+# remote_gone <name>: what GitHub does to a head branch when its pull request merges.
+remote_gone() { git push --quiet origin --delete "$1" 2>/dev/null; }
+has_branch() { git show-ref --verify --quiet "refs/heads/$1"; }
+
+branch_off feat/ancestry a.txt
+git merge --quiet --no-ff -m 'feat: merge ancestry' feat/ancestry
+git push --quiet origin main
+remote_gone feat/ancestry
+
+branch_off feat/squashed b.txt
+squashed_tip="$(git rev-parse feat/squashed)"
+git merge --quiet --squash feat/squashed >/dev/null
+git commit --quiet -m 'feat: squash b'
+git push --quiet origin main
+remote_gone feat/squashed
+
+branch_off feat/closed c.txt
+remote_gone feat/closed
+branch_off feat/live d.txt
+branch_off feat/worktree e.txt
+remote_gone feat/worktree
+git worktree add --quiet "${work}/wt" feat/worktree 2>/dev/null
+
+expect pass "dry run exits 0" "${prune}" --dry-run
+expect pass "dry run deletes nothing" has_branch feat/ancestry
+expect pass "ignores a branch that is not the default" bash -c "git switch --quiet -c feat/elsewhere && '${prune}' && git switch --quiet main"
+expect pass "and deletes nothing there" has_branch feat/ancestry
+expect pass "keeps a squash merge it cannot confirm without gh" "${no_gh[@]}" "${prune}"
+expect pass "keeps it" has_branch feat/squashed
+expect fail "deletes a branch merged by ancestry" has_branch feat/ancestry
+expect pass "keeps a branch with a live remote" has_branch feat/live
+expect pass "keeps a branch whose pull request closed unmerged" has_branch feat/closed
+expect pass "keeps a branch checked out in a worktree" has_branch feat/worktree
+expect pass "keeps a squash merge whose head moved on" env PATH="${work}/bin:${PATH}" GH_MERGED_OID=0000000000000000000000000000000000000000 "${prune}"
+expect pass "and the branch with it" has_branch feat/squashed
+expect pass "runs with a squash merge gh confirms" env PATH="${work}/bin:${PATH}" GH_MERGED_OID="${squashed_tip}" "${prune}"
+expect fail "and deletes it" has_branch feat/squashed
+expect pass "still keeps the unmerged and the live" has_branch feat/closed
+expect pass "and the checked out one" has_branch feat/worktree
+cd "${work}/repo"
+
 if ((failures > 0)); then
     echo "${failures} failed" >&2
     exit 1
