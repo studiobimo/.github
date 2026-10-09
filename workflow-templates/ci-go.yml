@@ -1,0 +1,42 @@
+name: CI
+
+# Starter: the per-pull-request checks for a Go repo, each a thin caller of a
+# centralized reusable. Copied into your repo and owned by it from then on -- edit freely.
+#
+# ci-go reads the Go version from go.mod and the golangci-lint version from
+# .golangci-lint-version, so both stay pinned in the repo, next to the code.
+#
+# This is deliberately not path-filtered: a skipped job reports no status, and a
+# required check that never reports blocks the pull request forever.
+#
+# A repo with a .pre-commit-config.yaml should call ci-pre-commit instead of the
+# `workflows` and `secrets-scan` jobs, and pass `skip:` for any Go hooks, which the
+# `go` job already covers.
+
+on:
+  push:
+    branches: [$default-branch]
+  pull_request:
+  merge_group:
+
+permissions: {}
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  go:
+    permissions:
+      contents: read
+    uses: studiobimo/.github/.github/workflows/ci-go.yml@v1
+
+  workflows:
+    permissions:
+      contents: read
+    uses: studiobimo/.github/.github/workflows/ci-workflows.yml@v1
+
+  secrets-scan:
+    permissions:
+      contents: read
+    uses: studiobimo/.github/.github/workflows/ci-gitleaks.yml@v1
