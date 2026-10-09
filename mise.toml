@@ -1,0 +1,21 @@
+# Every tool this repo's hooks and CI run, at one version each. mise.lock records the
+# checksums, and `mise install` refuses anything that does not match it.
+#
+#   mise install                    # once, and after this file changes
+#   mise exec -- lefthook install   # wire the git hooks
+#
+# After changing a version here: mise lock, and commit both files.
+
+[settings]
+lockfile = true
+
+[tools]
+node = "24.21.0"
+pnpm = "11.21.0"
+lefthook = "2.1.16"
+actionlint = "1.7.12"
+shellcheck = "0.11.0"
+gitleaks = "8.30.1"
+zizmor = "1.30.1"
+"npm:prettier" = "3.9.9"
+"npm:@commitlint/cli" = "21.2.3"

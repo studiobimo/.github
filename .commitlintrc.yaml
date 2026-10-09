@@ -1,0 +1,22 @@
+# Conventional Commits for this repo. The local commit-msg hook reads the whole file;
+# ci-pr reads only `rules`, on top of .github/actions/pr-checks/commitlint.default.yaml.
+
+# commitlint's built-in pattern does not accept the `!` that marks a breaking change.
+parserPreset:
+  parserOpts:
+    headerPattern: '^(\w*)(?:\(([^)]*)\))?!?: (.*)$'
+    headerCorrespondence: [type, scope, subject]
+
+rules:
+  type-enum:
+    - 2
+    - always
+    - [build, chore, ci, docs, feat, fix, perf, refactor, revert, style, test]
+  type-case: [2, always, lower-case]
+  type-empty: [2, never]
+  scope-case: [2, always, lower-case]
+  subject-empty: [2, never]
+  subject-full-stop: [2, never, '.']
+  # The scopes AGENTS.md documents, made binding. A scope stays optional, but an
+  # invented one is rejected, so the two lists cannot drift apart.
+  scope-enum: [2, always, [actions, workflows, devtools, templates, docs, deps]]

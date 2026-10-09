@@ -13,7 +13,8 @@ everywhere at once.
 | `.github/workflows/ci-java-gradle.yml`    | Java toolchain, Gradle build, test reports and artifacts                           |
 | `.github/workflows/ci-go.yml`             | Go modules, formatting, golangci-lint, race tests, coverage, govulncheck and build |
 | `.github/workflows/ci-workflows.yml`      | actionlint, zizmor and shellcheck over a repo's own workflows                      |
-| `.github/workflows/ci-pre-commit.yml`     | A repo's own pre-commit hooks, over the whole tree                                 |
+| `.github/workflows/ci-lint.yml`           | A repo's own lefthook hooks, over the whole tree, with the tools mise pins         |
+| `.github/workflows/ci-pre-commit.yml`     | Deprecated, use `ci-lint.yml`. A repo's own pre-commit hooks                       |
 | `.github/workflows/ci-gitleaks.yml`       | Secret scan of what a pull request adds                                            |
 | `.github/workflows/ci-template-drift.yml` | Compares a repo with the project template and tracks the difference in one issue   |
 | `.github/workflows/release-please.yml`    | Grooms a release pull request from Conventional Commits, then tags and releases    |
@@ -44,10 +45,45 @@ cross-repo; see [AGENTS.md](AGENTS.md).
 | `.github/actions/pr-checks`         | The PR title, branch, size and commit checks, for direct use |
 | `.github/actions/build-summary`     | JUnit + JaCoCo numbers into the job summary                  |
 
-## Pre-commit hooks
+## Git hooks
 
-This repo is also a [pre-commit](https://pre-commit.com/) hook repo. The hooks are the same
-scripts `ci-pr.yml` runs, so what passes locally passes on the pull request.
+studiobimo repositories run their git hooks with [lefthook](https://lefthook.dev/) and pin every
+tool with [mise](https://mise.jdx.dev/). A repository's own `lefthook.yml` holds its linters, and
+[`ci-lint.yml`](.github/workflows/ci-lint.yml) runs that same file in CI.
+
+The org's own rules come from here. [`lefthook/org.yml`](lefthook/org.yml) checks the branch name
+and the pull request size on push, with the scripts `ci-pr.yml` runs, so what passes locally
+passes on the pull request. A repository pulls it in by tag:
+
+```yaml
+# lefthook.yml
+remotes:
+  - git_url: https://github.com/studiobimo/.github
+    ref: v1.9.0
+    configs:
+      - lefthook/org.yml
+```
+
+lefthook fetches a remote once per `ref`, so pin a release tag there, never the floating `v1`.
+
+Two environment variables make the checks usable from a script, such as an agent guard that has
+to judge a command before it runs:
+
+```sh
+BRANCH_NAME=feat/new-thing lefthook run pre-push --job branch-name
+PR_BASE=main lefthook run pre-push --job pr-size
+```
+
+`PR_MAX_FILES` changes the limit. Without `PR_BASE` the base is the branch below this one in a
+`gh stack`, else the remote's default branch.
+
+Commit messages are not part of `org.yml`: each repository runs commitlint against its own
+`.commitlintrc.yaml` in a `commit-msg` job, and `ci-pr.yml` reads the same file.
+
+## Pre-commit hooks (deprecated)
+
+This repo is still a [pre-commit](https://pre-commit.com/) hook repo for the repositories that
+have not moved to lefthook yet. It goes away when the last one has.
 
 | Hook id               | Stage                | What it checks                                                 |
 | --------------------- | -------------------- | -------------------------------------------------------------- |
@@ -70,17 +106,6 @@ repos:
 Pin `rev:` to a release SHA with the version in a `frozen:` comment; Dependabot's `pre-commit`
 ecosystem bumps both. The floating `v1` tag is for workflows only: pre-commit caches a hook repo by
 `rev`, so a moving tag would never be re-fetched.
-
-Two environment variables make the hooks usable from a script, such as an agent guard that has to
-judge a command before it runs:
-
-```sh
-BRANCH_NAME=feat/new-thing pre-commit run conventional-branch --hook-stage manual
-PR_BASE=main pre-commit run pr-size --hook-stage manual
-```
-
-`PR_MAX_FILES` changes the limit. Without `PR_BASE` the base is the branch below this one in a
-`gh stack`, else the remote's default branch.
 
 ## Calling them
 
@@ -229,17 +254,21 @@ One caveat. Templates are not audited by zizmor — it only collects files under
 ## Working on this repo
 
 ```sh
-sh .devtools/install-hooks.sh
+mise install                    # every tool, at the versions in mise.toml and mise.lock
+mise exec -- lefthook install   # wire the git hooks
 npm ci --prefix .github/actions/pr-checks --ignore-scripts   # the commitlint ci-pr installs
-bash .devtools/test-hooks.sh   # the check scripts behind ci-pr and the pre-commit hooks
+bash .devtools/test-hooks.sh    # the check scripts behind ci-pr and the git hooks
 ```
 
-pnpm installs the Node toolchain (commitlint, Prettier, lefthook, semantic-release) and wires the
-git hooks; Homebrew adds actionlint, zizmor, shellcheck and gitleaks. The hooks warn and skip when
-a linter is missing, so a fresh clone can always commit — CI has no such escape hatch.
+[mise](https://mise.jdx.dev/getting-started.html) is the one thing to install by hand. It pins
+lefthook, Prettier, commitlint, actionlint, zizmor, shellcheck and gitleaks, and the hooks run
+each through `mise exec`, so they work whether or not your shell has mise activated. Nothing is
+skipped when a tool is missing: `mise install` is what makes it present.
 
-On push, the hooks also check the branch name and the 20-file limit, with the same scripts `ci-pr`
-runs on the pull request.
+To change a tool's version, edit `mise.toml`, run `mise lock`, and commit both along with
+`.mise/locks/`. Dependabot does not read `mise.toml`, so these bumps are made by hand.
+
+pnpm is only here for semantic-release, which `release.yml` runs.
 
 ## Contributing
 

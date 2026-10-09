@@ -2,5 +2,9 @@ node_modules/
 pnpm-lock.yaml
 package-lock.json
 
+# Written by `mise lock`.
+mise.lock
+.mise/
+
 # Written by semantic-release from the commit history, not by hand.
 CHANGELOG.md

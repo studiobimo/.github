@@ -6,13 +6,19 @@ Instructions for AI coding agents working in this repo.
 
 Org-wide CI for [studiobimo](https://github.com/studiobimo): reusable workflows under
 `.github/workflows/`, composite actions under `.github/actions/<name>/`, shared check scripts
-under `.devtools/`, and the pre-commit hooks in `.pre-commit-hooks.yaml` that expose those scripts
-to consumers' git hooks. `rulesets/` and `settings/` hold the branch rules and repository
-settings every repo shares; `.devtools/repo-settings.sh` checks and applies them. Nothing here is
-application code; everything here runs in other repositories' CI or on their contributors'
-machines.
+under `.devtools/`, and `lefthook/org.yml`, which exposes those scripts to consumers' git hooks.
+`rulesets/` and `settings/` hold the branch rules and repository settings every repo shares;
+`.devtools/repo-settings.sh` checks and applies them. Nothing here is application code;
+everything here runs in other repositories' CI or on their contributors' machines.
 
-Consumers: `studiobimo/tallyhopper` (Minecraft mod, Java/Gradle) is the first.
+Consumers: every studiobimo project, through `studiobimo/project-template`.
+
+Tooling: mise pins every tool (`mise.toml`, `mise.lock`), lefthook runs the hooks
+(`lefthook.yml`), commitlint checks commits (`.commitlintrc.yaml`). pnpm and `package.json` exist
+only for semantic-release. This repo releases with semantic-release, not release-please like
+the projects: it has no version file or changelog to maintain, and `release.yml` has to move the
+floating `v1` tag. `.pre-commit-hooks.yaml` and `ci-pre-commit.yml` are deprecated and stay
+until no consumer uses them.
 
 ## Non-negotiables
 
@@ -64,9 +70,9 @@ SHA and open a draft PR there.
 The check scripts have their own test, `bash .devtools/test-hooks.sh`, which `self-lint` runs. It
 also covers `pr-checks/lint.mjs`, so run `npm ci --prefix .github/actions/pr-checks --ignore-scripts`
 first.
-They are called two ways — by `ci-pr` with explicit arguments and by pre-commit with none — so a
-change to one has to keep both working. Try a hook end to end from a consumer checkout with
-`pre-commit try-repo <path-to-this-repo> <hook-id> --hook-stage manual`.
+They are called two ways — by `ci-pr` with explicit arguments and by the git hooks with none — so
+a change to one has to keep both working. Try the shared hooks end to end from a consumer checkout
+by pointing its `remotes` entry at your branch: `ref: <branch>` with `refetch: true`.
 
 Say in the PR which one you did. "It should work" is not a test result.
 
