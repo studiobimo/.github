@@ -37,9 +37,25 @@ permissions: {}
 jobs:
   pr-checks:
     name: Title, branch, size, commits
+    # Skipped here rather than in the caller so the check still reports, as skipped, under
+    # the name a ruleset requires. Dependabot's pull requests are never linted, so they do
+    # not need a runner at all. `edited` also fires when only the body or base changes --
+    # release-please and Dependabot rewrite theirs on every push -- and nothing checked
+    # reads the body, so it re-runs only when the title or the base branch changed.
+    if: >-
+      ${{ github.actor != 'dependabot[bot]'
+      && (github.event.action != 'edited'
+      || github.event.changes.title || github.event.changes.base) }}
     runs-on: ubuntu-latest
     permissions:
       contents: read
+    # Pushing again to a pull request supersedes the run in flight, so it is cancelled rather
+    # than billed to the end. Only pull requests cancel: a push to the default branch, a
+    # merge group and a schedule always finish. `github.workflow` is the caller's name, and
+    # the library suffix keeps this group distinct from any the caller declares itself.
+    concurrency:
+      group: ci-pr-${{ github.workflow }}-${{ github.ref }}
+      cancel-in-progress: ${{ github.event_name == 'pull_request' }}
     steps:
       - name: Check out the pull request
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
