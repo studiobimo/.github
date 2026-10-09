@@ -1,0 +1,73 @@
+name: ci-lint
+
+# Reusable: runs a repo's own lefthook hooks over the whole tree, with the tools its
+# mise.toml pins.
+#
+# This is the same command a developer runs, at the same versions: mise.lock records
+# every tool's checksum, and mise refuses to install anything that does not match it.
+# So a hook that passes locally passes here, and the two files stay the only place a
+# linter or its version is written down.
+#
+# The caller's lefthook.yml decides what runs. By default that is its `pre-commit`
+# hook; lefthook's --all-files gives each job every file its glob matches rather than
+# the staged ones.
+#
+#   jobs:
+#     lint:
+#       uses: studiobimo/.github/.github/workflows/ci-lint.yml@v1
+#       with:
+#         exclude: spotless
+
+on:
+  workflow_call:
+    inputs:
+      hook:
+        description: The lefthook hook to run.
+        type: string
+        required: false
+        default: pre-commit
+      exclude:
+        description: >-
+          Comma-separated job names or tags to skip, passed as LEFTHOOK_EXCLUDE. Use it
+          for jobs another workflow already covers -- a Gradle `check` that runs
+          spotlessCheck, say -- rather than dragging a whole toolchain into this one.
+        type: string
+        required: false
+        default: ''
+      mise-version:
+        description: mise release to install.
+        type: string
+        required: false
+        default: '2026.10.0'
+      timeout-minutes:
+        description: Job timeout. Tools are downloaded on a cold cache.
+        type: number
+        required: false
+        default: 15
+
+permissions: {}
+
+jobs:
+  lint:
+    name: lefthook
+    runs-on: ubuntu-latest
+    timeout-minutes: ${{ inputs.timeout-minutes }}
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      # Installs mise, then the caller's tools. With a mise.lock present the action
+      # passes --locked itself, so a tool whose checksum is not recorded fails here.
+      # Its cache is keyed on the mise files, so a version bump rebuilds it.
+      - uses: jdx/mise-action@7a4e45a543138629540c9a1616d08632b893e492 # v5.0.1
+        with:
+          version: ${{ inputs.mise-version }}
+
+      - name: Run the hooks
+        env:
+          HOOK: ${{ inputs.hook }}
+          LEFTHOOK_EXCLUDE: ${{ inputs.exclude }}
+        run: mise exec -- lefthook run "${HOOK}" --all-files --no-tty
