@@ -15,8 +15,13 @@
 # no opinion about is left as it is. A ruleset that exists on a repository but is not
 # listed for it is reported and never deleted.
 #
+# What GitHub does not offer a repository on its plan is skipped with a note, and is
+# not a difference: on the Free plan a private repository has no rulesets, no secret
+# scanning and no private vulnerability reporting.
+#
 # Needs gh, authenticated as an admin of the repositories, and jq.
-set -euo pipefail
+# Exit codes: 0 in step (or applied), 1 differences found by --check, 2 anything else.
+set -Eeuo pipefail
 
 org="${ORG:-studiobimo}"
 root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -41,6 +46,39 @@ if [[ ${#repos[@]} -eq 0 ]]; then
 fi
 
 differences=0
+
+die() {
+    echo "✖ $*" >&2
+    exit 2
+}
+
+# Exit 1 means "differs" to callers, so a command that fails must not end in it.
+trap 'die "repo-settings.sh failed at line ${LINENO}"' ERR
+
+work="$(mktemp -d)"
+trap 'rm -rf "${work}"' EXIT
+
+# get <gh api arguments...>: the answer in $body and its HTTP status in $http, 200
+# for any success. gh prints an error's JSON on stdout as well, so $body holds the
+# message when the request was refused.
+get() {
+    http=200
+    gh api "$@" >"${work}/stdout" 2>"${work}/stderr" || http=""
+    body="$(cat "${work}/stdout")"
+    [[ -z "${http}" ]] || return 0
+    http="$(sed -n 's/.*(HTTP \([0-9][0-9]*\)).*/\1/p' "${work}/stderr" | tail -n 1)"
+    [[ -n "${http}" ]] || die "gh api $1: $(cat "${work}/stderr")"
+}
+
+# refused <path>: the last get was not answered, and nothing here expects that.
+refused() {
+    die "GET $1: HTTP ${http}: $(jq -r '.message? // empty' <<<"${body}" 2>/dev/null || true)"
+}
+
+# skip <what>: GitHub does not offer it to this repository.
+skip() {
+    echo "    ! $1: not offered to this repository on its plan (skipped)"
+}
 
 # changes <current-json> <desired-json>: one line per key of desired that differs.
 changes() {
@@ -91,31 +129,76 @@ for repo in "${repos[@]}"; do
     echo "${org}/${repo}"
     before="${differences}"
 
-    reconcile "settings" "$(gh api "${api}")" "$(jq -c .repository "${settings}")" \
-        gh api -X PATCH "${api}"
-    reconcile "actions" "$(gh api "${api}/actions/permissions")" "$(jq -c .actions "${settings}")" \
+    get "${api}"
+    [[ "${http}" == 200 ]] || refused "${api}"
+    current="${body}"
+    desired="$(jq -c .repository "${settings}")"
+    # Without the features the key is null. It goes in the same request as the merge
+    # settings, so it is left out rather than risk that request being refused.
+    if jq -e '.security_and_analysis == null' <<<"${current}" >/dev/null \
+        && jq -e 'has("security_and_analysis")' <<<"${desired}" >/dev/null; then
+        skip "secret scanning"
+        desired="$(jq -c 'del(.security_and_analysis)' <<<"${desired}")"
+    fi
+    reconcile "settings" "${current}" "${desired}" gh api -X PATCH "${api}"
+
+    get "${api}/actions/permissions"
+    [[ "${http}" == 200 ]] || refused "${api}/actions/permissions"
+    reconcile "actions" "${body}" "$(jq -c .actions "${settings}")" \
         gh api -X PUT "${api}/actions/permissions"
-    reconcile "workflow permissions" "$(gh api "${api}/actions/permissions/workflow")" \
-        "$(jq -c .workflow "${settings}")" gh api -X PUT "${api}/actions/permissions/workflow"
+
+    get "${api}/actions/permissions/workflow"
+    [[ "${http}" == 200 ]] || refused "${api}/actions/permissions/workflow"
+    reconcile "workflow permissions" "${body}" "$(jq -c .workflow "${settings}")" \
+        gh api -X PUT "${api}/actions/permissions/workflow"
 
     # This endpoint answers with a status code, not a body: 204 is on, 404 is off.
-    alerts=false
-    if gh api "${api}/vulnerability-alerts" >/dev/null 2>&1; then alerts=true; fi
+    get "${api}/vulnerability-alerts"
+    case "${http}" in
+        200) alerts=true ;;
+        404) alerts=false ;;
+        *) refused "${api}/vulnerability-alerts" ;;
+    esac
     toggle "vulnerability alerts" "${api}/vulnerability-alerts" \
         "$(jq -r .vulnerability_alerts "${settings}")" "${alerts}"
-    toggle "automated security fixes" "${api}/automated-security-fixes" \
-        "$(jq -r .automated_security_fixes "${settings}")" \
-        "$(gh api "${api}/automated-security-fixes" --jq .enabled 2>/dev/null || echo false)"
-    toggle "private vulnerability reporting" "${api}/private-vulnerability-reporting" \
-        "$(jq -r .private_vulnerability_reporting "${settings}")" \
-        "$(gh api "${api}/private-vulnerability-reporting" --jq .enabled 2>/dev/null || echo false)"
 
-    existing="$(gh api "${api}/rulesets" --paginate --jq '[.[] | select(.source_type == "Repository") | {name, id}]')"
+    # 404 here is "not enabled", and the alerts above have to be on first.
+    get "${api}/automated-security-fixes"
+    case "${http}" in
+        200) fixes="$(jq -r .enabled <<<"${body}")" ;;
+        404) fixes=false ;;
+        *) refused "${api}/automated-security-fixes" ;;
+    esac
+    toggle "automated security fixes" "${api}/automated-security-fixes" \
+        "$(jq -r .automated_security_fixes "${settings}")" "${fixes}"
+
+    # A repository that can have it answers 200 either way, so 404 is "not offered".
+    get "${api}/private-vulnerability-reporting"
+    case "${http}" in
+        200)
+            toggle "private vulnerability reporting" "${api}/private-vulnerability-reporting" \
+                "$(jq -r .private_vulnerability_reporting "${settings}")" "$(jq -r .enabled <<<"${body}")"
+            ;;
+        404) skip "private vulnerability reporting" ;;
+        *) refused "${api}/private-vulnerability-reporting" ;;
+    esac
+
+    get "${api}/rulesets" --paginate
+    if [[ "${http}" == 403 ]] && jq -e '.message | test("^Upgrade to ")' <<<"${body}" >/dev/null 2>&1; then
+        skip "rulesets"
+        if [[ "${differences}" == "${before}" ]]; then
+            echo "    ✔ in step"
+        fi
+        continue
+    fi
+    [[ "${http}" == 200 ]] || refused "${api}/rulesets"
+    # --paginate prints one array per page.
+    existing="$(jq -cs '[.[][] | select(.source_type == "Repository") | {name, id}]' <<<"${body}")"
     wanted="$(jq -c --arg r "${repo}" '.repositories[$r] // .default' "${assignments}")"
 
     while IFS= read -r name; do
         file="${root}/rulesets/${name}.json"
-        [[ -f "${file}" ]] || { echo "settings/rulesets.json names ${name}, but rulesets/${name}.json is missing" >&2; exit 2; }
+        [[ -f "${file}" ]] || die "settings/rulesets.json names ${name}, but rulesets/${name}.json is missing"
         desired="$(jq -c "${comparable}" "${file}")"
         id="$(jq -r --arg n "${name}" '.[] | select(.name == $n) | .id' <<<"${existing}")"
         if [[ -z "${id}" ]]; then
@@ -126,7 +209,9 @@ for repo in "${repos[@]}"; do
             fi
             continue
         fi
-        current="$(gh api "${api}/rulesets/${id}" --jq "${comparable}")"
+        get "${api}/rulesets/${id}"
+        [[ "${http}" == 200 ]] || refused "${api}/rulesets/${id}"
+        current="$(jq -c "${comparable}" <<<"${body}")"
         extra="$(jq -rn --argjson c "${current}" --argjson d "${desired}" \
             '($c.rules | keys) - ($d.rules | keys) | map("      rule \(.): not in the file") | .[]')"
         found="$(changes "${current}" "${desired}")"

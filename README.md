@@ -237,6 +237,11 @@ It needs `gh` signed in as an admin of the repositories. Only keys written in `s
 compared, and a ruleset that is on a repository but not listed for it is reported, never deleted.
 To add one ruleset by hand instead: Settings → Rules → Rulesets → New ruleset → Import a ruleset.
 
+A private repository gets less. On the Free plan GitHub offers it no rulesets, no secret scanning
+and no private vulnerability reporting, so the script skips those with a note and applies the
+rest: its default branch is not protected. A skip is not a difference. The script exits 0 when
+everything is in step or applied, 1 when `--check` found differences, and 2 on any failure.
+
 These are repository rulesets applied one repo at a time, because organization-wide rulesets
 are not available on the Free plan.
 
@@ -267,6 +272,7 @@ mise install                    # every tool, at the versions in mise.toml and m
 mise exec -- lefthook install   # wire the git hooks
 npm ci --prefix .github/actions/pr-checks --ignore-scripts   # the commitlint ci-pr installs
 bash .devtools/test-hooks.sh    # the check scripts behind ci-pr and the git hooks
+bash .devtools/test-repo-settings.sh   # repo-settings.sh, against a stand-in for gh
 ```
 
 [mise](https://mise.jdx.dev/getting-started.html) is the one thing to install by hand. It pins

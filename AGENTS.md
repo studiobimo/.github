@@ -74,6 +74,8 @@ SHA and open a draft PR there.
 The check scripts have their own test, `bash .devtools/test-hooks.sh`, which `self-lint` runs. It
 also covers `pr-checks/lint.mjs`, so run `npm ci --prefix .github/actions/pr-checks --ignore-scripts`
 first.
+`repo-settings.sh` has its own too, `bash .devtools/test-repo-settings.sh`, run by `self-lint`
+against a stand-in for `gh`: it never reaches GitHub, so check a change with `--check` as well.
 They are called two ways — by `ci-pr` with explicit arguments and by the git hooks with none — so
 a change to one has to keep both working. Try the shared hooks end to end from a consumer checkout
 by pointing its `remotes` entry at your branch: `ref: <branch>` with `refetch: true`.

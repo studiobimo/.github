@@ -69,3 +69,7 @@ jobs:
       # hooks call them with none, and that path is tested here.
       - name: Test the check scripts
         run: bash .devtools/test-hooks.sh
+
+      # Against a stand-in for gh, so it needs no token and reaches no repository.
+      - name: Test the repository settings script
+        run: bash .devtools/test-repo-settings.sh
