@@ -158,6 +158,10 @@ jobs:
       contents: write
       pull-requests: write
     uses: studiobimo/.github/.github/workflows/release-please.yml@v1
+    with:
+      app-client-id: ${{ vars.RELEASE_APP_CLIENT_ID }}
+    secrets:
+      app-private-key: ${{ secrets.RELEASE_APP_PRIVATE_KEY }}
 
   publish:
     needs: release
@@ -238,7 +242,8 @@ as a GitHub App so the checks run:
    write** and **Pull requests: read and write**, no webhook, and install it on the repositories
    that release with release-please.
 2. Store its client ID as the organization variable `RELEASE_APP_CLIENT_ID` and a private key as
-   the organization secret `RELEASE_APP_PRIVATE_KEY`.
+   the organization secret `RELEASE_APP_PRIVATE_KEY`. On the Free plan those reach public
+   repositories only, so a private one needs both added to the repository itself.
 3. Pass both from the caller:
 
    ```yaml
