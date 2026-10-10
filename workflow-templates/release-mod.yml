@@ -12,6 +12,8 @@ name: Release
 # a tag created with GITHUB_TOKEN does not trigger another workflow. GitHub suppresses
 # that to stop runaway loops, and it would silently mean a release that never publishes.
 # Chaining on `needs` and the `release-created` output is what makes the handoff reliable.
+# It stays the handoff with the release app too: a tag made by the app does trigger other
+# workflows, so a second publisher on `push: tags` or `release` would ship twice.
 #
 # The publish job holds your Modrinth and CurseForge tokens and runs this repo's own
 # Gradle build. That is safe here and only here: this workflow triggers on a push to the
@@ -21,7 +23,12 @@ name: Release
 # Before the first real release:
 #   1. Add release-please-config.json and .release-please-manifest.json to this repo.
 #   2. Add MODRINTH_TOKEN and CURSEFORGE_TOKEN as repository secrets.
-#   3. Make sure your build actually has the publish task (mod-publish-plugin's
+#   3. Install the studio's release app on this repo (organization settings -> GitHub
+#      Apps -> the app -> Install App). A public repo then gets RELEASE_APP_CLIENT_ID and
+#      RELEASE_APP_PRIVATE_KEY from the organization. A private repo does not, on the Free
+#      plan: add both to the repo itself, as a variable and a secret. Until they resolve,
+#      release-please falls back to GITHUB_TOKEN and the release pull request gets no checks.
+#   4. Make sure your build actually has the publish task (mod-publish-plugin's
 #      `publishMods`). Until it does, set `dry-run: true` below: the jars still get
 #      built, attested and attached to the run, but nothing is pushed to a download page.
 
@@ -41,6 +48,12 @@ jobs:
       contents: write
       pull-requests: write
     uses: studiobimo/.github/.github/workflows/release-please.yml@v1
+    # As the release app, not GITHUB_TOKEN: a pull request opened with GITHUB_TOKEN
+    # triggers no workflows, so the release pull request's required checks would never run.
+    with:
+      app-client-id: ${{ vars.RELEASE_APP_CLIENT_ID }}
+    secrets:
+      app-private-key: ${{ secrets.RELEASE_APP_PRIVATE_KEY }}
 
   publish:
     needs: release
