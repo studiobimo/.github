@@ -231,8 +231,32 @@ are not available on the Free plan.
 
 Repository admins can bypass the branch rules on a pull request, and one case needs it: the
 release pull request that release-please opens with `GITHUB_TOKEN` does not trigger workflows, so
-its required checks never report. Merge it with the bypass checkbox, or give release-please its
-own token (`release-token`) so the checks run.
+its required checks never report. Merge it with the bypass checkbox, or have release-please act
+as a GitHub App so the checks run:
+
+1. Create an app owned by the organization with repository permissions **Contents: read and
+   write** and **Pull requests: read and write**, no webhook, and install it on the repositories
+   that release with release-please.
+2. Store its client ID as the organization variable `RELEASE_APP_CLIENT_ID` and a private key as
+   the organization secret `RELEASE_APP_PRIVATE_KEY`.
+3. Pass both from the caller:
+
+   ```yaml
+   release:
+     permissions:
+       contents: write
+       pull-requests: write
+     uses: studiobimo/.github/.github/workflows/release-please.yml@v1
+     with:
+       app-client-id: ${{ vars.RELEASE_APP_CLIENT_ID }}
+     secrets:
+       app-private-key: ${{ secrets.RELEASE_APP_PRIVATE_KEY }}
+   ```
+
+With neither set the workflow falls back to `GITHUB_TOKEN`, so a caller can pass them before the
+app exists. A tag or Release made by the app does trigger other workflows, unlike one made with
+`GITHUB_TOKEN`: keep the publish step gated on `release-created`, and do not add an
+`on: push: tags` or `on: release` workflow that would publish a second time.
 
 ## Workflow templates
 

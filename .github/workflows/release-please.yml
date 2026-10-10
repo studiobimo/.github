@@ -45,6 +45,15 @@ on:
         type: boolean
         required: false
         default: false
+      app-client-id:
+        description: >-
+          Client ID of a GitHub App installed on the calling repository. With app-private-key,
+          the release pull request, tag and Release are made as that app instead of
+          GITHUB_TOKEN, so the repository's checks run on the release pull request. Not a
+          secret; pass it from a variable.
+        type: string
+        required: false
+        default: ''
     outputs:
       release-created:
         description: The string 'true' when this run tagged a release. Gate a publish job on it.
@@ -56,12 +65,19 @@ on:
         description: Version just released, without the leading v. Empty unless release-created is 'true'.
         value: ${{ jobs.release-please.outputs.version }}
     secrets:
+      app-private-key:
+        description: >-
+          Private key of the GitHub App named by app-client-id. Worth passing for one reason:
+          a pull request opened by GITHUB_TOKEN does not trigger other workflows, so the
+          release PR arrives with no CI on it and its required checks never report. The job
+          trades the key for a token that lives only as long as the job and reaches only the
+          calling repository. Passed explicitly; never inherited.
+        required: false
       release-token:
         description: >-
-          Optional app or personal token used instead of GITHUB_TOKEN. Worth passing for one
-          reason: a pull request opened by GITHUB_TOKEN does not trigger other workflows, so
-          the release PR arrives with no CI on it. A separate token makes the repo's normal
-          checks run against the release before anyone merges it. Passed explicitly; never inherited.
+          Optional ready-made token used instead of GITHUB_TOKEN, for the same reason as
+          app-private-key. Prefer the app: a personal token belongs to one person and
+          expires. Ignored when app-client-id is set. Passed explicitly; never inherited.
         required: false
 
 permissions: {}
@@ -86,11 +102,24 @@ jobs:
       tag-name: ${{ steps.release.outputs.tag_name }}
       version: ${{ steps.release.outputs.version }}
     steps:
+      # Minted here, not by the caller: a token cannot cross from one job to another, since
+      # a job output holding a secret is dropped. Scoped to the calling repository and to
+      # what release-please does; revoked when the job ends.
+      - name: Mint the app token
+        id: app-token
+        if: ${{ inputs.app-client-id != '' }}
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        with:
+          client-id: ${{ inputs.app-client-id }}
+          private-key: ${{ secrets.app-private-key }}
+          permission-contents: write
+          permission-pull-requests: write
+
       - name: Run release-please
         id: release
         uses: googleapis/release-please-action@45996ed1f6d02564a971a2fa1b5860e934307cf7 # v5.0.0
         with:
-          token: ${{ secrets.release-token || github.token }}
+          token: ${{ steps.app-token.outputs.token || secrets.release-token || github.token }}
           config-file: ${{ inputs.config-file }}
           manifest-file: ${{ inputs.manifest-file }}
           target-branch: ${{ inputs.target-branch }}
