@@ -67,6 +67,7 @@ fixture() {
         return
     fi
     echo '{"enabled":true}' >"${base}_private-vulnerability-reporting.json"
+    echo "404 Not Found" >"${base}_contents_.template-profiles.status"
     echo '[]' >"${base}_rulesets.json"
     while IFS= read -r name; do
         id=$((id + 1))
@@ -137,6 +138,27 @@ check "apply exits 0" exits 0
 check "patches the settings" called '^PATCH repos/studiobimo/secret \{.*"delete_branch_on_merge":true' "${d}"
 check "without the secret scanning it cannot have" never_called 'security_and_analysis' "${d}"
 check "and writes no ruleset" never_called 'rulesets' "${d}"
+
+echo "a repository on project-template profiles"
+d="${work}/profiles"
+fixture "${d}" web public
+base="${d}/repos_studiobimo_web"
+rm "${base}_contents_.template-profiles.status"
+# The contents API answers in base64 broken over lines; cloudflare has no checks ruleset.
+jq -cn --arg c "$(printf 'vite-react-tanstack\ncloudflare\n' | base64 | fold -w 20)" '{content: $c}' \
+    >"${base}_contents_.template-profiles.json"
+run "${d}" --check web
+check "its profile's checks are a difference: --check exits 1" exits 1
+check "named for the profile" says "ruleset checks-vite-react-tanstack: missing"
+check "and a profile without checks adds nothing" silent_on "checks-cloudflare"
+run "${d}" web
+check "apply creates the profile's checks" called '^POST repos/studiobimo/web/rulesets ' "${d}"
+jq -c '. + {id: 99, source_type: "Repository"}' "${root}/rulesets/checks-vite-react-tanstack.json" \
+    >"${base}_rulesets_99.json"
+jq -c --slurpfile r "${base}_rulesets_99.json" '. + $r' "${base}_rulesets.json" >"${d}/r" \
+    && mv "${d}/r" "${base}_rulesets.json"
+run "${d}" --check web
+check "with them in place it is in step" exits 0
 
 echo "several repositories"
 d="${work}/both"

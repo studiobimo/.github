@@ -204,16 +204,22 @@ Every repository carries the same settings and the same branch rules, defined he
 | `settings/rulesets.json`     | Which rulesets a repository gets; `default` unless it is listed by name       |
 | `.devtools/repo-settings.sh` | Compares every repository with the above, and applies it                      |
 
-| Ruleset              | Applies to                   | Rules                                                                                           |
-| -------------------- | ---------------------------- | ----------------------------------------------------------------------------------------------- |
-| `default-branch`     | the default branch           | Pull request required, squash only, linear history, resolved threads, no force push or deletion |
-| `release-tags`       | `v*.*.*` and `<name>-v*.*.*` | A release tag cannot be moved or deleted. The floating `v1` is not matched                      |
-| `checks-project`     | the default branch           | Requires `pr-checks` and `lint`                                                                 |
-| `checks-java-gradle` | the default branch           | Requires the Gradle `check`                                                                     |
-| `checks-dotgithub`   | the default branch           | Requires this repo's own `self-*` checks                                                        |
+| Ruleset                      | Applies to                   | Rules                                                                                           |
+| ---------------------------- | ---------------------------- | ----------------------------------------------------------------------------------------------- |
+| `default-branch`             | the default branch           | Pull request required, squash only, linear history, resolved threads, no force push or deletion |
+| `release-tags`               | `v*.*.*` and `<name>-v*.*.*` | A release tag cannot be moved or deleted. The floating `v1` is not matched                      |
+| `checks-project`             | the default branch           | Requires `pr-checks` and `lint`                                                                 |
+| `checks-java-gradle`         | the default branch           | Requires the Gradle `check`                                                                     |
+| `checks-vite-react-tanstack` | the default branch           | Requires the web app's `check`: build, types, lint, tests, bundle budget, audit                 |
+| `checks-dotgithub`           | the default branch           | Requires this repo's own `self-*` checks                                                        |
 
 Rulesets stack, so a repository takes the pieces that fit it. Required checks are separate from
 `default-branch` because the check names differ by stack.
+
+A `checks-<profile>` ruleset follows the project-template profiles: a repository whose
+`.template-profiles` names `java-gradle` gets `checks-java-gradle` on top of its listed
+rulesets, with no entry in `settings/rulesets.json`. A new profile with a CI job adds its
+ruleset here under that name.
 
 ```sh
 bash .devtools/repo-settings.sh --check            # what differs, in every repo; changes nothing

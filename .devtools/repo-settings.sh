@@ -9,7 +9,8 @@
 #
 # settings/repository.json is the desired state, settings/rulesets.json says which
 # rulesets each repository gets, and rulesets/<name>.json is each ruleset in the
-# format GitHub's "Import a ruleset" reads.
+# format GitHub's "Import a ruleset" reads. A repository also gets checks-<profile> for
+# each project-template profile in its .template-profiles that has one.
 #
 # Only keys written in those files are compared and set, so a setting this repo has
 # no opinion about is left as it is. A ruleset that exists on a repository but is not
@@ -195,6 +196,20 @@ for repo in "${repos[@]}"; do
     # --paginate prints one array per page.
     existing="$(jq -cs '[.[][] | select(.source_type == "Repository") | {name, id}]' <<<"${body}")"
     wanted="$(jq -c --arg r "${repo}" '.repositories[$r] // .default' "${assignments}")"
+
+    # A repository on a project-template profile also gets rulesets/checks-<profile>.json,
+    # when there is one, so its CI is required without listing the repository here. The
+    # profiles are the names in .template-profiles on its default branch.
+    get "${api}/contents/.template-profiles"
+    case "${http}" in
+        200) profiles="$(jq -r '.content | gsub("\\s"; "") | @base64d' <<<"${body}")" ;;
+        404) profiles="" ;;
+        *) refused "${api}/contents/.template-profiles" ;;
+    esac
+    while IFS= read -r profile; do
+        [[ "${profile}" =~ ^[a-z0-9][a-z0-9-]*$ && -f "${root}/rulesets/checks-${profile}.json" ]] || continue
+        wanted="$(jq -c --arg n "checks-${profile}" 'if index($n) then . else . + [$n] end' <<<"${wanted}")"
+    done <<<"${profiles}"
 
     while IFS= read -r name; do
         file="${root}/rulesets/${name}.json"

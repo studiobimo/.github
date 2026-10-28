@@ -1,7 +1,6 @@
 {
   "default": ["default-branch", "release-tags", "checks-project"],
   "repositories": {
-    ".github": ["default-branch", "release-tags", "checks-dotgithub"],
-    "tallyhopper": ["default-branch", "release-tags", "checks-project", "checks-java-gradle"]
+    ".github": ["default-branch", "release-tags", "checks-dotgithub"]
   }
 }
