@@ -12,6 +12,7 @@ everywhere at once.
 | Workflow                                  | What it does                                                                       |
 | ----------------------------------------- | ---------------------------------------------------------------------------------- |
 | `.github/workflows/ci-pr.yml`             | Conventional PR title and branch name, PR size limit, Conventional Commits         |
+| `.github/workflows/ci-issue-title.yml`    | Conventional issue titles, with one comment and a label on an issue that fails     |
 | `.github/workflows/ci-java-gradle.yml`    | Java toolchain, Gradle build, test reports and artifacts                           |
 | `.github/workflows/ci-go.yml`             | Go modules, formatting, golangci-lint, race tests, coverage, govulncheck and build |
 | `.github/workflows/ci-workflows.yml`      | actionlint, zizmor and shellcheck over a repo's own workflows                      |
@@ -44,6 +45,7 @@ cross-repo; see [AGENTS.md](AGENTS.md).
 | ----------------------------------- | ------------------------------------------------------------ |
 | `.github/actions/setup-java-gradle` | Temurin JDK + Gradle with branch-aware caching               |
 | `.github/actions/pr-checks`         | The PR title, branch, size and commit checks, for direct use |
+| `.github/actions/issue-title`       | The issue title check, for direct use                        |
 | `.github/actions/build-summary`     | JUnit + JaCoCo numbers into the job summary                  |
 
 ## Git hooks
@@ -127,6 +129,24 @@ reads the whole file.
 
 Dependabot's pull requests are not linted. Its titles and commit bodies run past 100 characters
 and it offers no way to shorten them.
+
+`ci-issue-title` holds issue titles to the same rules, from the same `.commitlintrc.yaml`, so an
+issue is titled like the commit that will close it. A title that fails gets the
+`needs-conventional-title` label and one comment listing what to change; both go once the title
+passes. Issues a bot opens are left alone.
+
+```yaml
+on:
+  issues:
+    types: [opened, edited, reopened]
+
+jobs:
+  title:
+    permissions:
+      contents: read
+      issues: write
+    uses: studiobimo/.github/.github/workflows/ci-issue-title.yml@v1
+```
 
 A **composite action** is different — reference it by full path and full SHA:
 
@@ -292,6 +312,7 @@ mise exec -- lefthook install   # wire the git hooks
 npm ci --prefix .github/actions/pr-checks --ignore-scripts   # the commitlint ci-pr installs
 bash .devtools/test-hooks.sh    # the check scripts behind ci-pr and the git hooks
 bash .devtools/test-repo-settings.sh   # repo-settings.sh, against a stand-in for gh
+bash .devtools/test-issue-title.sh     # issue-title.sh, against a stand-in for gh
 ```
 
 [mise](https://mise.jdx.dev/getting-started.html) is the one thing to install by hand. It pins

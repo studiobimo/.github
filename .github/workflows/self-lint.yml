@@ -73,3 +73,7 @@ jobs:
       # Against a stand-in for gh, so it needs no token and reaches no repository.
       - name: Test the repository settings script
         run: bash .devtools/test-repo-settings.sh
+
+      # Against a stand-in for gh too, with the commitlint installed above.
+      - name: Test the issue title check
+        run: bash .devtools/test-issue-title.sh

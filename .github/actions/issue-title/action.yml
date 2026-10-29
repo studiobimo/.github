@@ -1,0 +1,36 @@
+name: Issue title
+description: Holds an issue's title to Conventional Commits, with one comment and a label on the issue while it fails.
+
+inputs:
+  number:
+    description: The issue's number.
+    required: true
+  title:
+    description: The issue's title. It is only ever passed to the check as an argument.
+    required: true
+  label:
+    description: The label on an issue whose title fails. It is how the next run tidies up.
+    required: false
+    default: needs-conventional-title
+  token:
+    description: A token that can comment on and label the repository's issues.
+    required: true
+
+runs:
+  using: composite
+  steps:
+    # The same commitlint pr-checks pins, from the same package-lock.json: GITHUB_ACTION_PATH
+    # is this action's directory inside a checkout of this whole repo, so pr-checks sits beside
+    # it and .devtools/ three levels up, at the commit the caller resolved.
+    - shell: bash
+      run: npm ci --prefix "${GITHUB_ACTION_PATH}/../pr-checks" --ignore-scripts --no-audit --no-fund
+
+    # Run from the caller's checkout, so lint.mjs reads its .commitlintrc.yaml, as data.
+    - shell: bash
+      env:
+        GH_TOKEN: ${{ inputs.token }}
+        GH_REPO: ${{ github.repository }}
+        ISSUE_TITLE_LABEL: ${{ inputs.label }}
+        NUMBER: ${{ inputs.number }}
+        TITLE: ${{ inputs.title }}
+      run: '"${GITHUB_ACTION_PATH}/../../../.devtools/issue-title.sh" "${NUMBER}" "${TITLE}"'

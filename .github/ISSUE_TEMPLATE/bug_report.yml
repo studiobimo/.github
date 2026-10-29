@@ -1,5 +1,6 @@
 name: Bug report
 description: Something in a shared workflow or action behaves wrongly.
+title: 'fix: '
 labels: [bug]
 body:
   - type: markdown
@@ -8,6 +9,8 @@ body:
         This repo holds CI that runs in *other* repositories. The most useful bug report
         names the consuming repo and links a failed run — that is usually faster to read
         than any description.
+
+        Title it like the fix that will close it, lowercase: `fix(workflows): ci-pr skips a renamed file`.
 
   - type: input
     id: component
