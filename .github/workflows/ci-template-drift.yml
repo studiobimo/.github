@@ -129,6 +129,8 @@ jobs:
           DRIFT: ${{ steps.check.outputs.drift }}
           REF: ${{ steps.ref.outputs.ref }}
           LABEL: ${{ inputs.label }}
+          # A Conventional Commit, like every issue title, and the commit that closes it.
+          TITLE: 'chore: sync with ${{ inputs.template-repo }}'
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
         run: |
           number="$(gh issue list --label "${LABEL}" --state open --json number --jq '.[0].number // empty')"
@@ -168,12 +170,13 @@ jobs:
           } > "${RUNNER_TEMP}/body.md"
 
           if [ -n "${number}" ]; then
-            gh issue edit "${number}" --body-file "${RUNNER_TEMP}/body.md"
+            # --title too, so an issue opened under an older title takes the current one.
+            gh issue edit "${number}" --title "${TITLE}" --body-file "${RUNNER_TEMP}/body.md"
           else
             # --force makes this a no-op when the label already exists.
             gh label create "${LABEL}" --force --color FBCA04 \
               --description "Managed files differ from the project template"
-            gh issue create --title "Template drift: behind ${TEMPLATE_REPO}" \
+            gh issue create --title "${TITLE}" \
               --label "${LABEL}" --body-file "${RUNNER_TEMP}/body.md"
           fi
           echo "### Drift from \`${TEMPLATE_REPO}@${REF}\`" >> "${GITHUB_STEP_SUMMARY}"

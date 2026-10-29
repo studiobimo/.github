@@ -1,5 +1,6 @@
 name: Feature request
 description: A new reusable workflow, action, or an input on an existing one.
+title: 'feat: '
 labels: [enhancement]
 body:
   - type: markdown
@@ -8,6 +9,8 @@ body:
         Shared CI earns its keep by being used in more than one place. Saying which repos
         need this, and how they differ, is what decides whether it should be a reusable
         workflow, an input on an existing one, or a workflow template.
+
+        Title it like the change that will close it, lowercase: `feat(workflows): add a ci-rust workflow`.
 
   - type: textarea
     id: problem
