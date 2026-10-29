@@ -45,6 +45,8 @@ STUB
 chmod +x "${work}/bin/gh"
 export PATH="${work}/bin:${PATH}" GH_LOG="${work}/gh"
 unset GH_COMMENT_ID ISSUE_TITLE_LABEL
+# commitlint colours its output on a CI runner. Here too, so a local run reads what CI reads.
+export FORCE_COLOR=1
 label=needs-conventional-title
 
 # The repository the issue is in, with its own scopes.

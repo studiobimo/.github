@@ -64,8 +64,11 @@ trap 'rm -rf "${work}"' EXIT
 # title itself is never written back into the issue.
 status=0
 node "${lint}" --label 'issue title' "${title}" >"${work}/lint" 2>&1 || status=$?
+# commitlint colours its output on a CI runner, so the escapes go before the findings are read.
+esc=$'\033'
 # shellcheck disable=SC2016 # the backticks are Markdown, written as they are
-sed -n 's/^✖[[:space:]]*\(.*\) \[\([a-z-]*\)\]$/- \1 (`\2`)/p' "${work}/lint" >"${work}/problems"
+sed -e "s/${esc}\[[0-9;]*m//g" "${work}/lint" \
+    | sed -n 's/^✖[[:space:]]*\(.*\) \[\([a-z-]*\)\]$/- \1 (`\2`)/p' >"${work}/problems"
 if [[ "${status}" -ne 0 && ( "${status}" -ne 1 || ! -s "${work}/problems" ) ]]; then
     die "${msg_no_verdict}" "${number}" "$(cat "${work}/lint")"
 fi
