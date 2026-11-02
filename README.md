@@ -19,7 +19,8 @@ everywhere at once.
 | `.github/workflows/ci-gitleaks.yml`       | Secret scan of what a pull request adds                                            |
 | `.github/workflows/ci-template-drift.yml` | Compares a repo with the project template and tracks the difference in one issue   |
 | `.github/workflows/release-please.yml`    | Grooms a release pull request from Conventional Commits, then tags and releases    |
-| `.github/workflows/semantic-release.yml`  | Tags and releases straight from Conventional Commits, with no release pull request |
+| `.github/workflows/promote-release.yml`   | Opens the `release/v<version>` pull request from `develop` into `main`             |
+| `.github/workflows/semantic-release.yml`  | Tags and releases `main` straight from Conventional Commits                        |
 | `.github/workflows/publish-mod.yml`       | Builds, attests and publishes a Minecraft mod to Modrinth, CurseForge and GitHub   |
 
 A repo with a `lefthook.yml` should call `ci-lint.yml` **instead of** `ci-workflows.yml` and
@@ -270,15 +271,48 @@ app exists. A tag or Release made by the app does trigger other workflows, unlik
 `GITHUB_TOKEN`: keep the publish step gated on `release-created`, and do not add an
 `on: push: tags` or `on: release` workflow that would publish a second time.
 
-## Releasing without a release pull request
+## Releasing with semantic-release
 
-[`semantic-release.yml`](.github/workflows/semantic-release.yml) is the alternative to
-`release-please.yml`: a repository calls one of them, never both, because both write the same
-tags. On a push it reads the Conventional Commits since the last tag and, if one is a `feat`, a
-`fix` or breaking, creates the `vX.Y.Z` tag and the GitHub Release. The notes live on the Release,
-so there is no version file or changelog to keep, and nothing is committed back.
+Two workflows make one release path for a git-flow repository: merge pull requests into `develop`,
+and a pull request into `main` appears when there is something to release; merge that when ready.
+A repository uses these **instead of** `release-please.yml`, never alongside it, because both write
+the same tags.
+
+- [`promote-release.yml`](.github/workflows/promote-release.yml) runs on a push to `develop`. A
+  semantic-release dry run works out the next version; if there is one, it makes a throwaway
+  `release/v<version>` branch at that commit and opens `chore(release): v<version>` into `main`,
+  holding the release notes and `Closes #N` for the issues the work closes. It comes from its own
+  branch because merging a `develop` -> `main` pull request would delete `develop` wherever
+  "Automatically delete head branches" is on. Nothing releasable, or a pull request already open
+  for that version, ends the run with a summary and creates nothing. A pull request left open
+  stays at the commit it was made at; if later commits change the version, a second one opens and
+  the older is closed by hand.
+- [`semantic-release.yml`](.github/workflows/semantic-release.yml) runs on a push to `main`, which
+  is the merge. It creates the `vX.Y.Z` tag and the GitHub Release; the notes live on the Release
+  and nothing is committed back.
 
 ```yaml
+# .github/workflows/promote.yml
+on:
+  push:
+    branches: [develop]
+
+permissions: {}
+
+jobs:
+  promote:
+    permissions:
+      contents: write
+      pull-requests: write
+    uses: studiobimo/.github/.github/workflows/promote-release.yml@v1
+    with:
+      app-client-id: ${{ vars.RELEASE_APP_CLIENT_ID }}
+    secrets:
+      app-private-key: ${{ secrets.RELEASE_APP_PRIVATE_KEY }}
+```
+
+```yaml
+# .github/workflows/release.yml
 on:
   push:
     branches: [main]
@@ -292,29 +326,30 @@ jobs:
     uses: studiobimo/.github/.github/workflows/semantic-release.yml@v1
 ```
 
-- **Merge commits count.** semantic-release reads every commit reachable from the branch, so a
-  long-lived branch promoted with a merge commit releases what is on it. A squash would leave it
-  one commit.
-- **The first release is 1.0.0.** semantic-release has no pre-1.0 mode. A repository that should
-  start at 0.x tags its starting point first, for example `v0.0.0`; after that a `feat` is a
-  minor bump and only a breaking change reaches 1.0.0.
-- **`branch`** names the branch to release from; it defaults to the repository's default branch.
-  **`dry-run: true`** prints the next version and the notes and creates nothing, which is how to
-  try a change before trusting it. **`major-tag: true`** also moves a floating `v1` tag, for a
-  repository others pin by tag.
-- **Outputs** are `release-created`, `tag-name` and `version`. A tag made with `GITHUB_TOKEN`
-  triggers no other workflow, so gate a build or deploy job in the same workflow on
-  `release-created` instead of listening for the tag. To have the tag trigger workflows, or to
-  push to a branch `GITHUB_TOKEN` cannot, pass a token as the `release-token` secret.
-- **Configuration.** The default analyses commits, writes the notes and publishes the Release,
-  with no comments or labels on issues. A `.releaserc*` in the caller wins over it, but can name
-  only the three plugins installed here: `commit-analyzer`, `release-notes-generator` and
-  `github`. The workflow installs a pinned semantic-release outside the caller's tree, with
-  install scripts off, so the caller needs no `package.json` for it.
+- **Merge with a merge commit.** semantic-release reads every commit reachable from `main`, so the
+  commits that came from `develop` must stay in `main`'s history. A squash leaves one commit.
+- **The app matters here too.** A pull request made with `GITHUB_TOKEN` triggers no workflow, so
+  its required checks never run. Set it up as for `release-please.yml` above; without it the run
+  says so in its summary.
+- **The size rule skips it.** `ci-pr` does not count the files in a `release/v*` pull request into
+  the default branch, since each change in it passed the check in its own pull request.
+- **The first release is 1.0.0** when there is no tag, because semantic-release has no pre-1.0
+  mode. A repository that starts at 0.x first tags its starting point, for example `v0.0.0` on its
+  first commit; then a `feat` is a minor bump and only a breaking change reaches 1.0.0.
+- **Inputs.** `promote-release.yml` takes `source-branch`, `target-branch` and `node-version`.
+  `semantic-release.yml` takes `branch`, `dry-run` and `major-tag` (also moves a floating `v1`, for
+  a repository others pin by tag). Both take the optional `release-token` secret, for a personal
+  token in place of the app. `semantic-release.yml` outputs `release-created`, `tag-name` and
+  `version`: a tag made with `GITHUB_TOKEN` triggers no other workflow, so gate a build or deploy
+  job in the same workflow on `release-created`.
+- **Configuration.** A `.releaserc*` in the caller wins over the default, but only the plugins
+  installed here (`commit-analyzer`, `release-notes-generator` and, on `main`, `github`) can be
+  named. Both install a pinned semantic-release outside the caller's tree with install scripts off,
+  so the caller needs no `package.json` for it.
 
-It is not run against this repository: `release.yml` here is already semantic-release, with the
-floating `v1` tag. Test a change from a consumer's wrapper pinned to your branch SHA, with
-`dry-run: true`.
+Neither is run against this repository: it has no `develop`, and `release.yml` here is already
+semantic-release with the floating `v1` tag. Test a change from a consumer's wrapper pinned to your
+branch SHA, with `dry-run: true` for `semantic-release.yml`.
 
 ## Workflow templates
 

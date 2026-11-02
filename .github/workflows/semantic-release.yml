@@ -1,7 +1,8 @@
 name: Semantic Release
 
-# Cuts a consumer repository's releases from its Conventional Commit history, with no
-# release pull request in between.
+# Cuts a consumer repository's releases from its Conventional Commit history, on a push to
+# the release branch. It is the second half of a pair: promote-release.yml opens the pull
+# request that brings `develop` into `main`, and merging it is what this workflow reacts to.
 #
 # On a push to the release branch, semantic-release reads the commits since the last tag
 # and, if one is releasable (`feat`, `fix`, or a breaking change), works out the next
@@ -9,8 +10,8 @@ name: Semantic Release
 # Release: nothing is committed back, so there is no version file or changelog to keep
 # and no bot commit to loop on.
 #
-# It is the alternative to release-please.yml, not a companion. Both write the same tags,
-# so a repository calls one of them and never both.
+# Together they are the alternative to release-please.yml, not a companion to it. Both
+# write the same tags, so a repository uses one or the other.
 #
 # Merges count. A merge commit keeps the Conventional Commits it brings in as parents, and
 # semantic-release reads every commit reachable from the branch, so promoting a long-lived

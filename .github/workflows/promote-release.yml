@@ -1,0 +1,324 @@
+name: Promote Release
+
+# Opens the pull request that promotes a git-flow repository's integration branch (default
+# `develop`) to its production branch (default `main`), when there is something to release.
+# Merging that pull request is the release: semantic-release.yml runs on the production
+# branch and tags it.
+#
+# The pull request comes from a short-lived `release/v<version>` branch, not from `develop`
+# itself. Where "Automatically delete head branches" is on, merging a develop -> main pull
+# request would delete `develop`.
+#
+#   1. semantic-release runs in dry-run mode against the source branch to work out the next
+#      version and its release notes. Only commit-analyzer and release-notes-generator run, so
+#      nothing is tagged or published. The caller's own semantic-release config is honoured
+#      for those two plugins; only `branches` is overridden.
+#   2. Nothing releasable: the run ends green with a summary and creates nothing.
+#   3. `release/v<version>` already exists, or an open pull request from it does: reported,
+#      not failed.
+#   4. Otherwise `release/v<version>` is created through the API at the source branch's SHA
+#      (no commit is made, so nothing needs signing) and a pull request into the production
+#      branch is opened, titled `chore(release): v<version>`, holding the release notes and
+#      the issues the work closes. A person reviews it and merges it with a merge commit.
+#
+# A pull request left open when the source branch moves on stays at the SHA it was made at:
+# the commits that arrived since go in the next one. If they change the version, a second
+# pull request opens beside it; close the older one.
+#
+# This is the counterpart to semantic-release.yml, and the pair is one release path. The pull
+# request's size is not counted by ci-pr (a head of `release/v*` into the default branch is
+# a promotion), since each change in it passed that check in its own pull request.
+#
+# Not dogfooded: this repo has no integration branch. Test a change by pointing a
+# consumer's wrapper at your branch SHA; see AGENTS.md.
+
+on:
+  workflow_call:
+    inputs:
+      source-branch:
+        description: Integration branch to promote. The semantic-release dry run reads it.
+        type: string
+        required: false
+        default: develop
+      target-branch:
+        description: Production branch the release pull request merges into.
+        type: string
+        required: false
+        default: main
+      node-version:
+        description: Node.js version that runs semantic-release.
+        type: string
+        required: false
+        default: '24'
+      app-client-id:
+        description: >-
+          Client ID of a GitHub App installed on the calling repository. With app-private-key,
+          the release branch and pull request are made as that app instead of GITHUB_TOKEN, so
+          the repository's checks run on the pull request. Not a secret; pass it from a
+          variable.
+        type: string
+        required: false
+        default: ''
+    secrets:
+      app-private-key:
+        description: >-
+          Private key of the GitHub App named by app-client-id. A pull request opened by
+          GITHUB_TOKEN triggers no other workflow, so without this one its required checks
+          never report. Passed explicitly; never inherited.
+        required: false
+      release-token:
+        description: >-
+          Optional ready-made token (a fine-grained personal access token, or a bot's) used
+          instead of GITHUB_TOKEN, for the same reason as app-private-key. Prefer the app: a
+          personal token belongs to one person and expires. Ignored when app-client-id is set.
+          Passed explicitly; never inherited.
+        required: false
+    outputs:
+      version:
+        description: Next version computed from the source branch. Empty when nothing is releasable.
+        value: ${{ jobs.promote.outputs.version }}
+      branch:
+        description: Release branch, `release/v<version>`. Empty when nothing is releasable.
+        value: ${{ jobs.promote.outputs.branch }}
+      pr-url:
+        description: URL of the opened, or already open, release pull request. Empty when there is none.
+        value: ${{ jobs.promote.outputs.pr-url }}
+
+permissions: {}
+
+jobs:
+  promote:
+    name: Promote release
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      # Creating the release/v<version> ref, and semantic-release's push --dry-run auth check.
+      contents: write
+      # Opening the release pull request.
+      pull-requests: write
+    # Two runs racing would open the same pull request twice, so one in flight finishes first.
+    concurrency:
+      group: promote-release-${{ github.repository }}-${{ inputs.target-branch }}
+      cancel-in-progress: false
+    outputs:
+      version: ${{ steps.dry-run.outputs.version }}
+      branch: ${{ steps.open-pr.outputs.branch }}
+      pr-url: ${{ steps.open-pr.outputs.pr-url }}
+    env:
+      SOURCE_BRANCH: ${{ inputs.source-branch }}
+      TARGET_BRANCH: ${{ inputs.target-branch }}
+      REPO: ${{ github.repository }}
+    steps:
+      # Minted here, not by the caller: a token cannot cross from one job to another, since
+      # a job output holding a secret is dropped. Scoped to the calling repository and to
+      # what this job does; revoked when the job ends.
+      - name: Mint the app token
+        id: app-token
+        if: ${{ inputs.app-client-id != '' }}
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        with:
+          client-id: ${{ inputs.app-client-id }}
+          private-key: ${{ secrets.app-private-key }}
+          permission-contents: write
+          permission-pull-requests: write
+
+      - name: Check out the source branch
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ inputs.source-branch }}
+          # Full history and every tag: the next version comes from all of them.
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Set up Node
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: ${{ inputs.node-version }}
+          package-manager-cache: false
+
+      # Into the runner's temp directory, so the caller's tree and lockfile are untouched,
+      # at exact versions and with install scripts off. The conventionalcommits preset is for
+      # callers whose config selects it; it stays on 9.x because 10.x needs
+      # conventional-changelog-writer 9, which release-notes-generator 14 does not ship. The
+      # transitive dependencies resolve at install time, since a reusable workflow cannot
+      # carry a lockfile to its callers; that is the gap zizmor names, accepted here.
+      - name: Install semantic-release
+        run: | # zizmor: ignore[adhoc-packages]
+          npm install --prefix "${RUNNER_TEMP}/promote-release" \
+            --no-save --no-audit --no-fund --ignore-scripts \
+            semantic-release@25.0.9 \
+            @semantic-release/commit-analyzer@13.0.1 \
+            @semantic-release/release-notes-generator@14.1.1 \
+            conventional-changelog-conventionalcommits@9.3.1 \
+            cosmiconfig@9.0.2
+
+      # Release tags sit on the production branch's merge commits, which are not ancestors
+      # of the source branch, so semantic-release run on the source branch alone would never
+      # see the last release and would work out a version that is already out. A local
+      # `-s ours` merge of the production branch makes those tags reachable without changing
+      # the tree or the set of unreleased commits. It is never pushed; the release branch is
+      # made at the real source SHA recorded here.
+      - name: Make the production branch's release tags reachable
+        id: source
+        run: |
+          set -euo pipefail
+          echo "sha=$(git rev-parse HEAD)" >>"${GITHUB_OUTPUT}"
+          if ! git rev-parse --verify --quiet "refs/remotes/origin/${TARGET_BRANCH}" >/dev/null; then
+            echo "::error::Branch '${TARGET_BRANCH}' does not exist on origin."
+            exit 1
+          fi
+          git -c user.name="github-actions[bot]" \
+            -c user.email="41898282+github-actions[bot]@users.noreply.github.com" \
+            -c commit.gpgsign=false \
+            merge --quiet --no-edit --strategy=ours --allow-unrelated-histories \
+            "refs/remotes/origin/${TARGET_BRANCH}"
+
+      # The programmatic API rather than the CLI, so the version and notes come back as data
+      # and the caller's own plugin options (preset, releaseRules) survive the plugin filter.
+      # GITHUB_REF and GITHUB_EVENT_NAME are overridden for semantic-release only: env-ci
+      # otherwise reports the branch the workflow ran on, which is not the configured source
+      # branch, and semantic-release would skip the run.
+      - name: Compute the next version (semantic-release dry run)
+        id: dry-run
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          REPOSITORY_URL: ${{ github.server_url }}/${{ github.repository }}.git
+        run: |
+          set -euo pipefail
+          cat >"${RUNNER_TEMP}/promote-release/dry-run.mjs" <<'EOF'
+          import { appendFileSync, writeFileSync } from 'node:fs'
+          import { cosmiconfig } from 'cosmiconfig'
+          import semanticRelease from 'semantic-release'
+
+          const { SOURCE_BRANCH, REPOSITORY_URL, NOTES_FILE, GITHUB_OUTPUT } = process.env
+          const readOnlyPlugins = [
+            '@semantic-release/commit-analyzer',
+            '@semantic-release/release-notes-generator',
+          ]
+          const pluginName = (entry) => (Array.isArray(entry) ? entry[0] : entry)
+
+          const repoConfig = (await cosmiconfig('release').search(process.cwd()))?.config ?? {}
+          const repoPlugins = Array.isArray(repoConfig.plugins) ? repoConfig.plugins : []
+          const plugins = readOnlyPlugins.map(
+            (name) => repoPlugins.find((entry) => pluginName(entry) === name) ?? name,
+          )
+
+          const result = await semanticRelease(
+            {
+              branches: [SOURCE_BRANCH],
+              plugins,
+              dryRun: true,
+              ci: false,
+              repositoryUrl: REPOSITORY_URL,
+            },
+            {
+              cwd: process.cwd(),
+              env: {
+                ...process.env,
+                GITHUB_REF: `refs/heads/${SOURCE_BRANCH}`,
+                GITHUB_EVENT_NAME: 'workflow_dispatch',
+              },
+            },
+          )
+
+          const version = result && result.nextRelease ? result.nextRelease.version : ''
+          writeFileSync(NOTES_FILE, version ? (result.nextRelease.notes ?? '') : '')
+          appendFileSync(GITHUB_OUTPUT, `version=${version}\n`)
+          EOF
+          NOTES_FILE="${RUNNER_TEMP}/promote-release/release-notes.md" \
+            NODE_PATH="${RUNNER_TEMP}/promote-release/node_modules" \
+            node "${RUNNER_TEMP}/promote-release/dry-run.mjs"
+
+      - name: Report no releasable change
+        if: ${{ steps.dry-run.outputs.version == '' }}
+        run: |
+          {
+            echo "## No release to promote"
+            echo
+            echo "semantic-release found no releasable change on \`${SOURCE_BRANCH}\` since the"
+            echo "last release on \`${TARGET_BRANCH}\`. Nothing was created."
+          } >>"${GITHUB_STEP_SUMMARY}"
+
+      - name: Create the release branch and open the pull request
+        id: open-pr
+        if: ${{ steps.dry-run.outputs.version != '' }}
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token || secrets.release-token || github.token }}
+          # Whether anything better than GITHUB_TOKEN made the pull request.
+          HAS_TOKEN: ${{ steps.app-token.outputs.token != '' || secrets.release-token != '' }}
+          VERSION: ${{ steps.dry-run.outputs.version }}
+          SOURCE_SHA: ${{ steps.source.outputs.sha }}
+        run: |
+          set -euo pipefail
+          branch="release/v${VERSION}"
+          echo "branch=${branch}" >>"${GITHUB_OUTPUT}"
+
+          if [ "${HAS_TOKEN}" != "true" ]; then
+            {
+              echo "> [!WARNING]"
+              echo "> No app or token was passed, so this run used \`GITHUB_TOKEN\`. A branch or"
+              echo "> pull request made with it triggers no workflow, so the required checks will"
+              echo "> not start on the release pull request. Pass \`app-client-id\` and"
+              echo "> \`app-private-key\`."
+              echo
+            } >>"${GITHUB_STEP_SUMMARY}"
+          fi
+
+          existing="$(gh pr list --repo "${REPO}" --head "${branch}" --state open --json url --jq '.[0].url // empty')"
+          if [ -n "${existing}" ]; then
+            echo "pr-url=${existing}" >>"${GITHUB_OUTPUT}"
+            {
+              echo "## Release v${VERSION} already in progress"
+              echo
+              echo "An open pull request from \`${branch}\` exists: ${existing}. Nothing was created."
+            } >>"${GITHUB_STEP_SUMMARY}"
+            exit 0
+          fi
+
+          if gh api "repos/${REPO}/git/ref/heads/${branch}" --silent 2>/dev/null; then
+            {
+              echo "## Release branch already exists"
+              echo
+              echo "\`${branch}\` exists with no open pull request. Nothing was created; delete the"
+              echo "stale branch, or open a pull request from it by hand."
+            } >>"${GITHUB_STEP_SUMMARY}"
+            exit 0
+          fi
+
+          # The issues the work closes. GitHub acts on `Closes` only at the default branch and
+          # a squashed commit carries none, so this pull request lists what each squashed pull
+          # request closed. A failed lookup drops that line, not the release.
+          issues=""
+          for number in $(git log "refs/remotes/origin/${TARGET_BRANCH}..${SOURCE_SHA}" --format=%s \
+            | grep -oE '\(#[0-9]+\)$' | tr -d '(#)' | sort -un); do
+            found="$(gh pr view "${number}" --repo "${REPO}" --json closingIssuesReferences \
+              --jq '.closingIssuesReferences[].number' 2>/dev/null || true)"
+            issues="$(printf '%s\n%s' "${issues}" "${found}")"
+          done
+          issues="$(printf '%s\n' "${issues}" | grep -E '^[0-9]+$' | sort -un || true)"
+
+          gh api "repos/${REPO}/git/refs" -f "ref=refs/heads/${branch}" -f "sha=${SOURCE_SHA}" --silent
+
+          body="${RUNNER_TEMP}/promote-release/pr-body.md"
+          {
+            head -c 50000 "${RUNNER_TEMP}/promote-release/release-notes.md"
+            echo
+            echo "---"
+            echo
+            echo "Promotes \`${SOURCE_BRANCH}\` (\`${SOURCE_SHA:0:7}\`) to \`${TARGET_BRANCH}\` as **v${VERSION}**."
+            echo "Merge it with a **merge commit**, not a squash or a rebase, so \`${TARGET_BRANCH}\`"
+            echo "keeps the history that semantic-release reads."
+            if [ -n "${issues}" ]; then
+              echo
+              while IFS= read -r issue; do echo "Closes #${issue}"; done <<<"${issues}"
+            fi
+          } >"${body}"
+
+          url="$(gh pr create --repo "${REPO}" --base "${TARGET_BRANCH}" --head "${branch}" \
+            --title "chore(release): v${VERSION}" --body-file "${body}")"
+          echo "pr-url=${url}" >>"${GITHUB_OUTPUT}"
+          {
+            echo "## Release v${VERSION} opened"
+            echo
+            echo "Created \`${branch}\` at \`${SOURCE_SHA}\` and opened ${url} into \`${TARGET_BRANCH}\`."
+          } >>"${GITHUB_STEP_SUMMARY}"
