@@ -1,0 +1,18 @@
+name: self-issue-title
+
+# Dogfooding caller: runs the ci-issue-title library workflow on this repo's own issues,
+# by local path so it always exercises the version on main.
+
+on:
+  issues:
+    types: [opened, edited, reopened]
+
+permissions: {}
+
+jobs:
+  title:
+    permissions:
+      contents: read
+      issues: write
+    # `./` rather than `$/` on purpose; self-lint.yml explains why.
+    uses: ./.github/workflows/ci-issue-title.yml # zizmor: ignore[self-repository]
