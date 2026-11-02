@@ -1,0 +1,223 @@
+name: Semantic Release
+
+# Cuts a consumer repository's releases from its Conventional Commit history, on a push to
+# the release branch. It is the second half of a pair: promote-release.yml opens the pull
+# request that brings `develop` into `main`, and merging it is what this workflow reacts to.
+#
+# On a push to the release branch, semantic-release reads the commits since the last tag
+# and, if one is releasable (`feat`, `fix`, or a breaking change), works out the next
+# SemVer, creates the vX.Y.Z tag and the GitHub Release. The release notes live on the
+# Release: nothing is committed back, so there is no version file or changelog to keep
+# and no bot commit to loop on.
+#
+# Together they are the alternative to release-please.yml, not a companion to it. Both
+# write the same tags, so a repository uses one or the other.
+#
+# Merges count. A merge commit keeps the Conventional Commits it brings in as parents, and
+# semantic-release reads every commit reachable from the branch, so promoting a long-lived
+# branch with a merge commit releases what is on it. A squash would leave it one commit.
+#
+# What runs is pinned here: semantic-release and the three plugins below are installed
+# outside the caller's tree, with install scripts off, so the caller needs no package.json
+# for it and nothing of theirs is executed. A `.releaserc*` (or a `release` key in
+# package.json) in the caller is read and wins over the default configuration, but it can
+# only name those plugins. Anything more than that wants its own workflow.
+#
+# Like release-please, this decides *that* a release happened and what it is called. A
+# tag made with GITHUB_TOKEN triggers no other workflow, so chain a build or deploy job
+# onto the `release-created` output below rather than listening for the tag.
+#
+# Not dogfooded: this repo releases itself with semantic-release in release.yml, which
+# also moves the floating major tag. Test a change by pointing a consumer's wrapper at your
+# branch SHA with `dry-run: true`; see AGENTS.md.
+
+on:
+  workflow_call:
+    inputs:
+      branch:
+        description: >-
+          Branch to release from. Empty means the repository's default branch. Ignored when
+          the caller's own configuration sets `branches`.
+        type: string
+        required: false
+        default: ''
+      dry-run:
+        description: >-
+          Work out the next version and print the notes, but create no tag and no Release.
+          Use it to rehearse before trusting the automation.
+        type: boolean
+        required: false
+        default: false
+      major-tag:
+        description: >-
+          Also move a floating vMAJOR tag (v1, v2) onto each release. For a repository other
+          repositories pin by tag, such as a library of reusable workflows. Leave it off for
+          an application.
+        type: boolean
+        required: false
+        default: false
+    outputs:
+      release-created:
+        description: The string 'true' when this run tagged a release. Gate a build or deploy job on it.
+        value: ${{ jobs.release.outputs.release-created }}
+      tag-name:
+        description: Tag just created, e.g. v0.1.0. Empty unless release-created is 'true'.
+        value: ${{ jobs.release.outputs.tag-name }}
+      version:
+        description: Version just released, without the leading v. Empty unless release-created is 'true'.
+        value: ${{ jobs.release.outputs.version }}
+    secrets:
+      release-token:
+        description: >-
+          Optional token used instead of GITHUB_TOKEN. Pass one when the release branch
+          refuses a push from GITHUB_TOKEN, or when the tag has to trigger other workflows,
+          which a GITHUB_TOKEN tag never does. Needs contents: write on the calling
+          repository. Passed explicitly; never inherited.
+        required: false
+
+permissions: {}
+
+jobs:
+  release:
+    name: Semantic release
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      # Creating the tag and the GitHub Release, and moving the floating major tag.
+      contents: write
+    # Two releases racing would compute the same version, so a run in flight is always
+    # allowed to finish rather than being cancelled by the next push.
+    concurrency:
+      group: semantic-release-${{ github.repository }}
+      cancel-in-progress: false
+    outputs:
+      release-created: ${{ steps.result.outputs.release-created }}
+      tag-name: ${{ steps.result.outputs.tag-name }}
+      version: ${{ steps.result.outputs.version }}
+    env:
+      SEMANTIC_RELEASE_VERSION: 25.0.9
+      COMMIT_ANALYZER_VERSION: 13.0.1
+      NOTES_GENERATOR_VERSION: 14.1.1
+      GITHUB_PLUGIN_VERSION: 12.0.10
+    steps:
+      - name: Check out the full history
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          # The next version comes from every commit and tag, not just the latest.
+          fetch-depth: 0
+          # semantic-release builds its own authenticated remote from the token below,
+          # so nothing needs to be written into .git/config for later steps to read.
+          persist-credentials: false
+
+      - name: Set up Node
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          # semantic-release 25 needs 22.14 or 24.10 and later.
+          node-version: 24
+          package-manager-cache: false
+
+      # Into the runner's temp directory, so the caller's tree and lockfile are untouched.
+      # --ignore-scripts: no dependency gets to run code at install time, in a job that
+      # holds a token able to write tags. The four top-level versions are exact; their
+      # dependencies resolve at install time, since a reusable workflow cannot carry a
+      # lockfile to its callers. That is the gap zizmor names, accepted here.
+      - name: Install semantic-release
+        run: | # zizmor: ignore[adhoc-packages]
+          npm install --prefix "${RUNNER_TEMP}/semantic-release" \
+            --no-audit --no-fund --ignore-scripts --save-exact \
+            "semantic-release@${SEMANTIC_RELEASE_VERSION}" \
+            "@semantic-release/commit-analyzer@${COMMIT_ANALYZER_VERSION}" \
+            "@semantic-release/release-notes-generator@${NOTES_GENERATOR_VERSION}" \
+            "@semantic-release/github@${GITHUB_PLUGIN_VERSION}"
+
+      # The org default: analyse commits, write notes, publish the Release. The github
+      # plugin's comments and labels are off, so contents: write is all it needs, and an
+      # issue is never touched by a release.
+      - name: Write the default configuration
+        env:
+          INPUT_BRANCH: ${{ inputs.branch }}
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+        run: |
+          jq -n --arg branch "${INPUT_BRANCH:-${DEFAULT_BRANCH}}" '{
+            branches: [$branch],
+            plugins: [
+              "@semantic-release/commit-analyzer",
+              "@semantic-release/release-notes-generator",
+              ["@semantic-release/github", {
+                successComment: false,
+                failComment: false,
+                releasedLabels: false
+              }]
+            ]
+          }' >"${RUNNER_TEMP}/semantic-release-default.json"
+
+      - name: Run semantic-release
+        id: run
+        env:
+          GITHUB_TOKEN: ${{ secrets.release-token || github.token }}
+          DRY_RUN: ${{ inputs.dry-run }}
+          # semantic-release looks plugins up from the caller's tree, where they are not
+          # installed. This is how it finds them, and a plugin named in a caller's
+          # `.releaserc` too.
+          NODE_PATH: ${{ runner.temp }}/semantic-release/node_modules
+        run: |
+          flags=(--extends "${RUNNER_TEMP}/semantic-release-default.json")
+          [ "${DRY_RUN}" != "true" ] || flags+=(--dry-run)
+          # What was already tagged here, so a re-run on a released commit is not
+          # mistaken for a release.
+          echo "before=$(git tag --points-at HEAD 'v[0-9]*.[0-9]*.[0-9]*' | sort -V | tail -n1)" >>"${GITHUB_OUTPUT}"
+          "${RUNNER_TEMP}/semantic-release/node_modules/.bin/semantic-release" "${flags[@]}"
+
+      # semantic-release makes the tag locally before it pushes it, and it commits nothing
+      # back, so a tag that now points at HEAD and did not before is this run's release.
+      - name: Report what was released
+        id: result
+        env:
+          BEFORE: ${{ steps.run.outputs.before }}
+          DRY_RUN: ${{ inputs.dry-run }}
+        run: |
+          tag="$(git tag --points-at HEAD 'v[0-9]*.[0-9]*.[0-9]*' | sort -V | tail -n1)"
+          if [ -n "${tag}" ] && [ "${tag}" != "${BEFORE}" ] && [ "${DRY_RUN}" != "true" ]; then
+            {
+              echo "release-created=true"
+              echo "tag-name=${tag}"
+              echo "version=${tag#v}"
+            } >>"${GITHUB_OUTPUT}"
+            {
+              echo "### Released \`${tag}\`"
+              echo
+              echo "The tag and GitHub Release exist. A job gated on \`release-created\` runs next."
+            } >>"${GITHUB_STEP_SUMMARY}"
+          else
+            echo "release-created=false" >>"${GITHUB_OUTPUT}"
+            {
+              echo "### Nothing released"
+              echo
+              echo "No releasable Conventional Commits since the last tag, or a dry run."
+            } >>"${GITHUB_STEP_SUMMARY}"
+          fi
+
+      # Moved through the API rather than `git push`: the checkout holds no credentials.
+      - name: Move the floating major tag
+        if: ${{ inputs.major-tag && steps.result.outputs.release-created == 'true' }}
+        env:
+          GH_TOKEN: ${{ secrets.release-token || github.token }}
+          TAG: ${{ steps.result.outputs.tag-name }}
+        run: |
+          major="${TAG%%.*}"
+          sha="$(git rev-list -n1 "${TAG}")"
+          echo "Pointing ${major} at ${TAG} (${sha})"
+
+          # PATCH fails if the ref does not exist yet, so create it the first time.
+          current="$(gh api "repos/${GITHUB_REPOSITORY}/git/ref/tags/${major}" --jq .object.sha 2>/dev/null || true)"
+          if [ "${current}" = "${sha}" ]; then
+            echo "${major} already points at ${sha}"
+          elif [ -n "${current}" ]; then
+            gh api -X PATCH "repos/${GITHUB_REPOSITORY}/git/refs/tags/${major}" \
+              -f "sha=${sha}" -F force=true >/dev/null
+            echo "${major} now points at ${sha}"
+          else
+            gh api -X POST "repos/${GITHUB_REPOSITORY}/git/refs" \
+              -f "ref=refs/tags/${major}" -f "sha=${sha}" >/dev/null
+            echo "${major} now points at ${sha}"
+          fi

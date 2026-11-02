@@ -11,8 +11,18 @@
 #
 # Either way a stacked branch is measured against the layer below it, so each
 # layer is counted on its own rather than accumulating the whole stack. On a
-# pull request GitHub has already set the base to the parent branch.
+# pull request GitHub has already set the base to the parent branch. PR_PROMOTION=true skips
+# the count, for a promotion pull request (see above).
 set -euo pipefail
+
+# A promotion carries commits that each passed this check in their own pull request, so
+# counting them together measures how long the branch has lived, not how big any change is.
+# The caller says it is one (ci-pr's pr-checks action does, for a release/v* branch into the
+# default branch, which promote-release.yml opens); the hook never does, since a push cannot know where its pull request will go.
+if [[ "${PR_PROMOTION:-}" == true ]]; then
+    echo "✔ promotion pull request; its changes were checked one by one"
+    exit 0
+fi
 
 max="${PR_MAX_FILES:-20}"
 base="${PR_BASE:-}"

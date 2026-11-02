@@ -23,7 +23,7 @@ trap 'rm -rf "${work}"' EXIT
 export GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_SYSTEM=/dev/null
 export GIT_AUTHOR_NAME=test GIT_AUTHOR_EMAIL=test@example.com
 export GIT_COMMITTER_NAME=test GIT_COMMITTER_EMAIL=test@example.com
-unset BRANCH_NAME PR_BASE PR_HEAD PR_MAX_FILES
+unset BRANCH_NAME PR_BASE PR_HEAD PR_MAX_FILES PR_PROMOTION
 
 # The repository sits beside the message fixtures, not around them, so
 # `git add .` below never sweeps them into a commit.
@@ -107,6 +107,8 @@ git switch --quiet -c feat/big
 add_files 1 big
 expect fail "blocks 21 files, base worked out" "${size}"
 expect fail "blocks 21 files, explicit refs" "${size}" --base main --head feat/big
+expect pass "skips a promotion pull request" env PR_PROMOTION=true "${size}" --base main --head feat/big
+expect fail "counts it when PR_PROMOTION is not true" env PR_PROMOTION=false "${size}" --base main --head feat/big
 expect pass "measures a layer against PR_BASE" env PR_BASE=feat/small "${size}"
 expect pass "measures a layer against --base" "${size}" --base feat/small
 
