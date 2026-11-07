@@ -1,0 +1,135 @@
+name: ci-tools-outdated
+
+# Reusable: reports the tools pinned in a repo's mise.toml that have a newer release, in one
+# tracking issue. Dependabot does not read mise.toml, so nothing else notices a pin going stale,
+# the security tools included.
+#
+# A release younger than cooldown-days is not reported, the same wait the repos give
+# Dependabot. The issue is opened on the first tool behind, rewritten in place as the list
+# changes, and closed once every pin is current. It only reports: bumping stays a reviewed
+# change, since mise.lock and .mise/locks/ have to move with mise.toml.
+#
+# The job that runs mise has no write access; only the job that writes the issue has it.
+#
+#   on:
+#     schedule:
+#       - cron: '41 6 * * 1'
+#     workflow_dispatch:
+#
+#   jobs:
+#     tools:
+#       permissions:
+#         contents: read
+#         issues: write
+#       uses: studiobimo/.github/.github/workflows/ci-tools-outdated.yml@v1
+
+on:
+  workflow_call:
+    inputs:
+      cooldown-days:
+        description: Days a release has to be out before it is reported.
+        type: number
+        required: false
+        default: 7
+      label:
+        description: Label that marks the tracking issue. It is how the next run finds the issue again.
+        type: string
+        required: false
+        default: tools-outdated
+      mise-version:
+        description: mise release to install.
+        type: string
+        required: false
+        default: '2026.10.0'
+
+permissions: {}
+
+jobs:
+  outdated:
+    name: Compare the pins with the latest releases
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    outputs:
+      behind: ${{ steps.compare.outputs.behind }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: jdx/mise-action@7a4e45a543138629540c9a1616d08632b893e492 # v5.0.1
+        with:
+          version: ${{ inputs.mise-version }}
+          minimum_release_age: ${{ inputs.cooldown-days }}d
+          install: false
+          cache: false
+
+      - name: List the tools behind
+        id: compare
+        run: |
+          mise trust --quiet
+          behind="$(mise outdated --bump --json | jq -c '
+            [.[] | select(.bump != null and .bump != .requested)
+                 | {tool: .name, pinned: .requested, newer: .bump}]')"
+          echo "behind=${behind}" >> "${GITHUB_OUTPUT}"
+          jq -r '.[] | "\(.tool) \(.pinned) -> \(.newer)"' <<< "${behind}"
+
+  report:
+    name: Update the tracking issue
+    needs: outdated
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      issues: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+      BEHIND: ${{ needs.outdated.outputs.behind }}
+      LABEL: ${{ inputs.label }}
+      COOLDOWN_DAYS: ${{ inputs.cooldown-days }}
+      RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+    steps:
+      - name: Open, rewrite or close the issue
+        run: |
+          number="$(gh issue list --label "${LABEL}" --state open --json number --jq '.[0].number // empty')"
+          count="$(jq length <<< "${BEHIND}")"
+
+          if [ "${count}" -eq 0 ]; then
+            echo "### Every pinned tool is current" >> "${GITHUB_STEP_SUMMARY}"
+            if [ -n "${number}" ]; then
+              gh issue close "${number}" --comment "Every tool pinned in \`mise.toml\` is current."
+            fi
+            exit 0
+          fi
+
+          {
+            echo "These tools pinned in \`mise.toml\` have a release that has been out for ${COOLDOWN_DAYS} days or more."
+            echo
+            echo "| Tool | Pinned | Newer |"
+            echo "| --- | --- | --- |"
+            jq -r '.[] | "| `\(.tool)` | `\(.pinned)` | `\(.newer)` |"' <<< "${BEHIND}"
+            echo
+            echo "Bump the ones you take, then record the new checksums and commit the three together:"
+            echo
+            echo '```sh'
+            echo "\$EDITOR mise.toml"
+            echo "mise lock"
+            echo "git add mise.toml mise.lock .mise/locks"
+            echo '```'
+            echo
+            echo "A tool in the \`base\` block is bumped in \`studiobimo/project-template\` and arrives with"
+            echo "\`make -C .devtools sync\`. The rest are this repository's own."
+            echo
+            echo "Rewritten by [the last run](${RUN_URL}) and closed automatically once every pin is current."
+          } > "${RUNNER_TEMP}/body.md"
+
+          if [ -n "${number}" ]; then
+            gh issue edit "${number}" --body-file "${RUNNER_TEMP}/body.md"
+          else
+            gh label create "${LABEL}" --force --color 5319E7 \
+              --description "Tools pinned in mise.toml have a newer release"
+            gh issue create --title "chore(deps): update the tools pinned in mise.toml" \
+              --label "${LABEL}" --body-file "${RUNNER_TEMP}/body.md"
+          fi
+          echo "### ${count} pinned tools are behind" >> "${GITHUB_STEP_SUMMARY}"

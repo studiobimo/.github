@@ -6,6 +6,7 @@
 #
 # Dependabot does not read this file, so versions are bumped by hand: change one here,
 # run `mise lock`, and commit this file, mise.lock and .mise/locks/ together.
+# self-tools-outdated opens an issue weekly while a pin is behind.
 
 [settings]
 lockfile = true
