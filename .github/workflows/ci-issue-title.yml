@@ -1,0 +1,68 @@
+name: ci-issue-title
+
+# Reusable: holds every issue's title to Conventional Commits, as ci-pr holds the titles
+# and commits of pull requests. Issues are titled like the commit that will close them
+# (`fix(api): return 404 for a missing invoice`), so a list of issues reads like the
+# changelog it becomes.
+#
+# The check lives in .github/actions/issue-title, referenced with `$/` so it always
+# matches the version the caller pinned. It lints with pr-checks' lint.mjs, against
+# @commitlint/config-conventional plus the `rules` of the caller's .commitlintrc.yaml. A
+# title that fails gets a label and one comment saying what to change; both go once the
+# title passes.
+#
+# The caller's code is the default branch's, never the issue author's, and the title only
+# ever reaches the check as an argument.
+#
+#   on:
+#     issues:
+#       types: [opened, edited, reopened]
+#
+#   jobs:
+#     title:
+#       permissions:
+#         contents: read
+#         issues: write
+#       uses: studiobimo/.github/.github/workflows/ci-issue-title.yml@v1
+
+on:
+  workflow_call:
+    inputs:
+      label:
+        description: The label on an issue whose title fails. It is how the next run tidies up.
+        type: string
+        required: false
+        default: needs-conventional-title
+
+permissions: {}
+
+jobs:
+  title:
+    name: Conventional title
+    # Bots title their own issues (ci-template-drift's tracking issue among them), and an
+    # edit that leaves the title alone has nothing new to check.
+    if: >-
+      ${{ github.event.issue.user.type != 'Bot'
+      && (github.event.action != 'edited' || github.event.changes.title) }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      # Commenting on and labelling the issue.
+      issues: write
+    # A quicker second edit supersedes the first.
+    concurrency:
+      group: ci-issue-title-${{ github.workflow }}-${{ github.event.issue.number }}
+      cancel-in-progress: true
+    steps:
+      - name: Check out the repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: $/.github/actions/issue-title
+        with:
+          number: ${{ github.event.issue.number }}
+          title: ${{ github.event.issue.title }}
+          label: ${{ inputs.label }}
+          token: ${{ github.token }}

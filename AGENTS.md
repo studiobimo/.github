@@ -75,6 +75,8 @@ also covers `pr-checks/lint.mjs`, so run `npm ci --prefix .github/actions/pr-che
 first.
 `repo-settings.sh` has its own too, `bash .devtools/test-repo-settings.sh`, run by `self-lint`
 against a stand-in for `gh`: it never reaches GitHub, so check a change with `--check` as well.
+So does `issue-title.sh`, behind `ci-issue-title`: `bash .devtools/test-issue-title.sh`, with the
+same `npm ci` first. It stands in for `gh` as well, so open an issue here to see a real comment.
 They are called two ways — by `ci-pr` with explicit arguments and by the git hooks with none — so
 a change to one has to keep both working. Try the shared hooks end to end from a consumer checkout
 by pointing its `remotes` entry at your branch: `ref: <branch>` with `refetch: true`.
