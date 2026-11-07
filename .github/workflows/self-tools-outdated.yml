@@ -1,0 +1,17 @@
+name: self-tools-outdated
+
+# Dogfooding caller: runs ci-tools-outdated against this repo's own mise.toml.
+
+on:
+  schedule:
+    - cron: '41 6 * * 1'
+  workflow_dispatch:
+
+permissions: {}
+
+jobs:
+  tools:
+    permissions:
+      contents: read
+      issues: write
+    uses: ./.github/workflows/ci-tools-outdated.yml # zizmor: ignore[self-repository]

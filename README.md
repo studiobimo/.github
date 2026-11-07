@@ -18,6 +18,7 @@ everywhere at once.
 | `.github/workflows/ci-lint.yml`           | A repo's own lefthook hooks, over the whole tree, with the tools mise pins         |
 | `.github/workflows/ci-gitleaks.yml`       | Secret scan of what a pull request adds                                            |
 | `.github/workflows/ci-template-drift.yml` | Compares a repo with the project template and tracks the difference in one issue   |
+| `.github/workflows/ci-tools-outdated.yml` | Tracks the tools pinned in `mise.toml` that have a newer release in one issue      |
 | `.github/workflows/release-please.yml`    | Grooms a release pull request from Conventional Commits, then tags and releases    |
 | `.github/workflows/promote-release.yml`   | Opens the `release/v<version>` pull request from `develop` into `main`             |
 | `.github/workflows/semantic-release.yml`  | Tags and releases `main` straight from Conventional Commits                        |
@@ -383,9 +384,10 @@ skipped when a tool is missing: `mise install` is what makes it present.
 
 ### Bumping a tool
 
-Dependabot does not read `mise.toml`, so the tools pinned there are bumped by hand. Nothing
-reminds you; check them when you touch the file, and at least when a linter reports something
-its newer release has fixed.
+Dependabot does not read `mise.toml`, so the tools pinned there are bumped by hand.
+`self-tools-outdated` runs every Monday and keeps one `tools-outdated` issue open while a pinned
+tool has a release a week old or more, then closes it. Consumers call
+`ci-tools-outdated.yml@v1` the same way.
 
 ```sh
 mise outdated --bump            # what has a newer release
