@@ -71,6 +71,11 @@ jobs:
       id-token: write
       # Recording the attestation against the repository.
       attestations: write
+    # Two runs for one tag publish the same files twice, so the second waits for the first. A
+    # release is never cancelled half way through, whatever event started it.
+    concurrency:
+      group: ci-publish-mod-${{ github.workflow }}-${{ inputs.tag-name }}
+      cancel-in-progress: false
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:

@@ -47,6 +47,8 @@ jobs:
       && (github.event.action != 'edited'
       || github.event.changes.title || github.event.changes.base) }}
     runs-on: ubuntu-latest
+    # Each check is seconds of work; a hung one should not hold a runner for six hours.
+    timeout-minutes: 10
     permissions:
       contents: read
     # Pushing again to a pull request supersedes the run in flight, so it is cancelled rather
