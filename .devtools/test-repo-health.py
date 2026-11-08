@@ -174,6 +174,42 @@ class Parsers(unittest.TestCase):
         self.assertEqual((finding.rule, finding.line, finding.anchor), ("complexity", 26, "Parser::parse"))
         self.assertTrue(finding.message.startswith("Parser::parse has 17 NLOC, 16 CCN"))
 
+    def test_lizard_leaves_out_what_lizardignore_lists(self):
+        ignore = "# registry copies\n\napps/admin/src/components/ui/**\n*.gen.ts\n"
+        files = {
+            ".lizardignore": ignore,
+            "apps/admin/src/components/ui/menu.tsx": "",
+            "apps/admin/src/components/ui/deep/menu.tsx": "",
+            "apps/admin/src/components/card.tsx": "",
+            "apps/admin/src/routeTree.gen.ts": "",
+        }
+        repo = Canned(files, {"lizard": ""})
+        rh.lizard(repo)
+        listed = Path(repo.commands["lizard"][-1]).read_text().splitlines()
+        self.assertEqual(listed, [".lizardignore", "apps/admin/src/components/card.tsx"])
+
+    def test_lizardignore_patterns_follow_gitignore_anchoring(self):
+        def hits(pattern, path):
+            return bool(rh.glob_regex(pattern.removeprefix("/")).fullmatch(path))
+
+        self.assertTrue(hits("vendor", "a/vendor/b.js"))
+        self.assertTrue(hits("components/ui/", "components/ui/a.tsx"))
+        self.assertFalse(hits("components/ui/", "apps/admin/components/ui/a.tsx"))
+        self.assertTrue(hits("/src/x.ts", "src/x.ts"))
+        self.assertFalse(hits("/src/x.ts", "a/src/x.ts"))
+        self.assertTrue(hits("**/ui/*.tsx", "ui/c.tsx"))
+        self.assertTrue(hits("**/ui/*.tsx", "a/b/ui/c.tsx"))
+        self.assertFalse(hits("ui/*.tsx", "ui/deep/c.tsx"))
+
+    def test_lizard_skips_when_lizardignore_covers_every_file(self):
+        repo = Canned({".lizardignore": "*\n", "a.ts": ""}, {"lizard": ""})
+        with self.assertRaises(rh.Skip):
+            rh.lizard(repo)
+        self.assertNotIn("lizard", repo.commands)
+
+    def test_lizardignore_is_analyser_config(self):
+        self.assertTrue(rh.is_config(".lizardignore"))
+
     def test_ast_grep_runs_the_bundled_rules_and_the_repository_s(self):
         bundled = match("repo-health-suppression", "src/i.js", 2, "// eslint-disable-line")
         bundled += match("repo-health-magic-number", "src/i.js", 3, "86400", "warning")
