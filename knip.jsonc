@@ -1,0 +1,15 @@
+// knip's view of this repository's two packages, for repo-health.
+{
+  "$schema": "https://unpkg.com/knip@6/schema.json",
+  "workspaces": {
+    ".": {
+      // semantic-release loads its plugins by the names .releaserc.json lists, which knip
+      // does not read.
+      "ignoreDependencies": ["@semantic-release/*"],
+    },
+    ".github/actions/pr-checks": {
+      // lint.mjs runs commitlint's binary from node_modules/.bin rather than importing it.
+      "ignoreDependencies": ["@commitlint/cli"],
+    },
+  },
+}

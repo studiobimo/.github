@@ -1,0 +1,29 @@
+name: self-repo-health
+
+# Dogfooding caller: runs ci-repo-health against this repo's own source. knip.jsonc and
+# .jscpd.json at the root are its configuration here, and .repo-health/baseline.json its
+# baseline. The repo-health-config-change label lets a reviewed pull request change them.
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, labeled, unlabeled]
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions: {}
+
+concurrency:
+  group: self-repo-health-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  health:
+    permissions:
+      contents: read
+      issues: read
+    uses: ./.github/workflows/ci-repo-health.yml # zizmor: ignore[self-repository]
+    with:
+      allow-config-change: ${{ contains(github.event.pull_request.labels.*.name, 'repo-health-config-change') }}
+      # A bot's dependency bump resolves nothing.
+      minimum-reduction: ${{ github.actor != 'dependabot[bot]' && 1 || 0 }}
