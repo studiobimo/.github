@@ -16,3 +16,17 @@ rules:
       policies:
         studiobimo/*: ref-pin
         '*': hash-pin
+
+  # zizmor prefers `$/` over `./`, because a workspace-relative ref can load something a
+  # previous step cloned at runtime. That risk is real for a step-level action ref -- it is
+  # why the actions moved to `$/` -- but not for a job-level reusable-workflow call, which
+  # GitHub resolves when the run is queued, never from the workspace. The self-* callers
+  # keep `./` for what it buys: actionlint validates a local call against the callee's
+  # declarations (an input name that does not exist, and the ones that do), while `$/` it
+  # cannot parse at all.
+  #
+  # So the audit is off, and .devtools/check-action-pins.sh holds the line it cared about:
+  # it fails a `./` action ref in .github/workflows/ and lets a `./…/*.yml` workflow call
+  # through, which zizmor cannot tell apart.
+  self-repository:
+    disable: true

@@ -22,7 +22,7 @@ jobs:
     permissions:
       contents: read
       issues: read
-    uses: ./.github/workflows/ci-repo-health.yml # zizmor: ignore[self-repository]
+    uses: ./.github/workflows/ci-repo-health.yml
     with:
       allow-config-change: ${{ contains(github.event.pull_request.labels.*.name, 'repo-health-config-change') }}
       # A bot's dependency bump resolves nothing.

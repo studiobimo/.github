@@ -15,4 +15,4 @@ jobs:
       contents: read
       issues: write
     # `./` rather than `$/` on purpose; self-lint.yml explains why.
-    uses: ./.github/workflows/ci-issue-title.yml # zizmor: ignore[self-repository]
+    uses: ./.github/workflows/ci-issue-title.yml
