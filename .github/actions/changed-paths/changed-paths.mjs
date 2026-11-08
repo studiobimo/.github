@@ -20,12 +20,18 @@ export const parsePatterns = (text = "") =>
     .map((line) => line.trim())
     .filter((line) => line && !line.startsWith("#"));
 
-// Converts a GitHub `paths:`-style glob to an anchored RegExp: `*` and `?` stop at `/`, `**`
-// crosses directories, and a `**/` prefix also matches files at the root.
+// Converts a GitHub `paths:` glob to an anchored RegExp, following GitHub's filter pattern cheat
+// sheet: `*` stops at `/`, `**` crosses directories (and a `**/` prefix also matches files at the
+// root), `?` and `+` make the preceding character optional or repeatable (`*.jsx?` is .js and
+// .jsx), and `[...]` is a character class. A `?` or `+` with no single character before it is
+// literal.
 export const toRegExp = (glob) => {
   let source = "";
+  // Whether the last thing appended is a single character or class a quantifier can apply to.
+  let quantifiable = false;
   for (let i = 0; i < glob.length; i++) {
     const char = glob[i];
+    const close = char === "[" ? glob.indexOf("]", i + 2) : -1;
     if (char === "*" && glob[i + 1] === "*") {
       if (glob[i + 2] === "/") {
         source += "(?:.*/)?";
@@ -34,9 +40,21 @@ export const toRegExp = (glob) => {
         source += ".*";
         i += 1;
       }
-    } else if (char === "*") source += "[^/]*";
-    else if (char === "?") source += "[^/]";
-    else source += char.replace(/[.+^${}()|[\]\\]/g, "\\$&");
+      quantifiable = false;
+    } else if (char === "*") {
+      source += "[^/]*";
+      quantifiable = false;
+    } else if ((char === "?" || char === "+") && quantifiable) {
+      source += char;
+      quantifiable = false;
+    } else if (close !== -1) {
+      source += `[${glob.slice(i + 1, close).replace(/[\\^]/g, "\\$&")}]`;
+      i = close;
+      quantifiable = true;
+    } else {
+      source += char.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+      quantifiable = true;
+    }
   }
   return new RegExp(`^${source}$`);
 };
@@ -74,7 +92,9 @@ const compareFiles = async ({ api, repository, base, head, token }) => {
   if (!response.ok) {
     throw new Error(`compare ${base}...${head} failed: HTTP ${response.status}`);
   }
-  const { files = [] } = await response.json();
+  const { files } = await response.json();
+  // No `files` array at all is not "nothing changed": treat it like a truncated list.
+  if (!Array.isArray(files)) return { files: [], truncated: true };
   return {
     files: files.flatMap((file) => [file.filename, file.previous_filename].filter(Boolean)),
     truncated: files.length >= MAX_COMPARE_FILES,

@@ -9,8 +9,9 @@ description: >-
 inputs:
   paths:
     description: >-
-      Newline-separated globs with GitHub `paths:` semantics (`*`, `**`, `?`, and `!` to exclude
-      an earlier match). Empty means always changed.
+      Newline-separated globs with GitHub `paths:` semantics (`*`, `**`, `?` and `+` on the
+      preceding character, `[...]`, and `!` to exclude an earlier match). Empty means always
+      changed.
     required: false
     default: ''
   token:

@@ -84,6 +84,6 @@ jobs:
         run: python3 .devtools/test-repo-health.py
 
       # Decision logic for the changed-paths guard the paths-gated reusables call. Pure Node,
-      # no install: the compare API call itself is exercised by any pull request in a consumer.
+      # no install: self-changed-paths runs the compare API call itself.
       - name: Test the changed-paths guard
         run: node --test .github/actions/changed-paths/changed-paths.test.mjs

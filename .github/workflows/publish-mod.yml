@@ -72,9 +72,11 @@ jobs:
       # Recording the attestation against the repository.
       attestations: write
     # Two runs for one tag publish the same files twice, so the second waits for the first. A
-    # release is never cancelled half way through, whatever event started it.
+    # release is never cancelled half way through, whatever event started it. The group leaves
+    # out the workflow name: two different callers (a release and a manual re-run) publishing
+    # the same tag must still queue behind each other. Groups are per repository already.
     concurrency:
-      group: ci-publish-mod-${{ github.workflow }}-${{ inputs.tag-name }}
+      group: ci-publish-mod-${{ inputs.tag-name }}
       cancel-in-progress: false
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1

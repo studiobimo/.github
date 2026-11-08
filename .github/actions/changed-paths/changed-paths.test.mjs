@@ -21,14 +21,34 @@ test("a leading **/ also matches files at the root", () => {
   assert.equal(matches("main.rs", ["**/*.go"]), false);
 });
 
-test("? matches one character other than a slash", () => {
-  assert.equal(toRegExp("v?.txt").test("v1.txt"), true);
-  assert.equal(toRegExp("v?.txt").test("v/.txt"), false);
+test("? makes the preceding character optional, as in GitHub's cheat sheet", () => {
+  assert.equal(matches("app.js", ["*.jsx?"]), true);
+  assert.equal(matches("app.jsx", ["*.jsx?"]), true);
+  assert.equal(matches("app.jsxx", ["*.jsx?"]), false);
+  assert.equal(toRegExp("v?.txt").test("v1.txt"), false);
 });
 
-test("regex metacharacters in a glob are literal", () => {
-  assert.equal(matches("a+b(1).txt", ["a+b(1).txt"]), true);
-  assert.equal(matches("aab1.txt", ["a+b(1).txt"]), false);
+test("+ repeats the preceding character", () => {
+  assert.equal(matches("ve.txt", ["ve+.txt"]), true);
+  assert.equal(matches("vee.txt", ["ve+.txt"]), true);
+  assert.equal(matches("v.txt", ["ve+.txt"]), false);
+});
+
+test("[] is a character class", () => {
+  assert.equal(matches("v1.txt", ["v[0-9].txt"]), true);
+  assert.equal(matches("vx.txt", ["v[0-9].txt"]), false);
+  assert.equal(matches("b.md", ["[abc].md"]), true);
+});
+
+test("a quantifier with nothing to apply to is literal", () => {
+  assert.equal(matches("+x", ["+x"]), true);
+  assert.equal(matches("a?", ["*?"]), true);
+  assert.equal(matches("a", ["*?"]), false);
+});
+
+test("other regex metacharacters in a glob are literal", () => {
+  assert.equal(matches("a.b(1)$.txt", ["a.b(1)$.txt"]), true);
+  assert.equal(matches("aab1.txt", ["a.b(1).txt"]), false);
 });
 
 test("a later ! pattern excludes an earlier match", () => {
