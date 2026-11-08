@@ -175,10 +175,10 @@ backend = "npm:knip"
 specifiers = ["6.44.1"]
 
 [[tools."pipx:lizard"]]
-version = "1.24.3"
+version = "1.25.1"
 backend = "pipx:lizard"
-specifiers = ["1.24.3"]
-uv = { path = ".mise/locks/pipx-lizard/1.24.3", digest = "sha256:d0f3ca2677b547eaf10c26344dfcb878690aba8180a922f22b213f0b6eaf2b41" }
+specifiers = ["1.25.1"]
+uv = { path = ".mise/locks/pipx-lizard/1.25.1", digest = "sha256:27890212c803c10a85016d773f81dbe765e92ec2568d9105237ac08d38c0a529" }
 
 [[tools."pipx:semgrep"]]
 version = "1.183.0"
