@@ -355,11 +355,13 @@ class Ratchet(unittest.TestCase):
         self.assertEqual(self.pull_request(), 0, self.output)
         self.assertIn("1 entries added for findings the base's code already has", self.output)
 
+    def one_of_two_resolved(self):
+        """The base baselines aa and bb; this pull request fixed bb."""
+        base = [{"fingerprint": "aa", "issue": 7}, {"fingerprint": "bb", "issue": 7}]
+        self.files([finding("aa")], base[:1], base)
+
     def test_the_base_is_only_scanned_when_the_baseline_grows(self):
-        self.files([finding("aa")], [{"fingerprint": "aa", "issue": 7}], [
-            {"fingerprint": "aa", "issue": 7},
-            {"fingerprint": "bb", "issue": 7},
-        ])
+        self.one_of_two_resolved()
         self.assertEqual(self.pull_request(), 0, self.output)
         self.assertEqual(self.scanned, [])
 
@@ -371,10 +373,7 @@ class Ratchet(unittest.TestCase):
         self.assertEqual(self.pull_request("--minimum-reduction", "0"), 0)
 
     def test_resolving_one_is_enough_by_default(self):
-        self.files([finding("aa")], [{"fingerprint": "aa", "issue": 7}], [
-            {"fingerprint": "aa", "issue": 7},
-            {"fingerprint": "bb", "issue": 7},
-        ])
+        self.one_of_two_resolved()
         self.assertEqual(self.pull_request(), 0, self.output)
         self.assertEqual(self.pull_request("--minimum-reduction", "2"), 1)
 

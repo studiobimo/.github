@@ -501,6 +501,24 @@ CONFIG_FILES = (
 CONFIG_SECTIONS = {"pyproject.toml": ("vulture", "sqlfluff"), "package.json": ("knip", "jscpd")}
 
 
+def config_sections(tracked: list[str], read) -> dict[str, str]:
+    """The analysers' sections of pyproject.toml and package.json."""
+    found = {}
+    for name, keys in CONFIG_SECTIONS.items():
+        if name not in tracked:
+            continue
+        try:
+            data = tomllib.loads(read(name)).get("tool", {}) if name.endswith(".toml") else json.loads(read(name))
+        except ValueError:
+            continue
+        found.update({f"{name} ({k})": json.dumps(data[k], sort_keys=True) for k in keys if k in data})
+    return found
+
+
+def is_config(path: str) -> bool:
+    return path in CONFIG_FILES or Path(path).name == ".sqlfluff" or path.startswith(".semgrep/")
+
+
 def gate_config(root: Path) -> dict[str, str]:
     """Every analyser setting at `root` that could hide a finding, keyed by where it is."""
     tracked = [p for p in git(root, "ls-files", "-z").split("\0") if p and (root / p).is_file()]
@@ -508,20 +526,10 @@ def gate_config(root: Path) -> dict[str, str]:
     def read(path: str) -> str:
         return (root / path).read_text(encoding="utf-8", errors="replace")
 
-    config = {p: read(p) for p in tracked if p in CONFIG_FILES or Path(p).name == ".sqlfluff" or p.startswith(".semgrep/")}
-    for sg in ("sgconfig.yml", "sgconfig.yaml"):
-        if sg in config:
-            for d in sgconfig_dirs(config[sg]):
-                config.update({p: read(p) for p in tracked if p.startswith(f"{d}/")})
-    for name, keys in CONFIG_SECTIONS.items():
-        if name not in tracked:
-            continue
-        try:
-            data = tomllib.loads(read(name)).get("tool", {}) if name.endswith(".toml") else json.loads(read(name))
-        except (ValueError, tomllib.TOMLDecodeError):
-            continue
-        config.update({f"{name} ({k})": json.dumps(data[k], sort_keys=True) for k in keys if k in data})
-    return config
+    config = {p: read(p) for p in tracked if is_config(p)}
+    rule_dirs = [d for sg in ("sgconfig.yml", "sgconfig.yaml") if sg in config for d in sgconfig_dirs(config[sg])]
+    config.update({p: read(p) for p in tracked if any(p.startswith(f"{d}/") for d in rule_dirs)})
+    return config | config_sections(tracked, read)
 
 
 def config_changes(base: Path, head: Path) -> list[str]:
@@ -681,25 +689,32 @@ def check(args: argparse.Namespace) -> int:
     return 1 if failed else 0
 
 
+def summary_table(heading: str, rows: list) -> list[str]:
+    lines = ["", f"#### {heading}", "", "| Fingerprint | Finding | Why |", "| --- | --- | --- |"]
+    for fp, entry, why in rows[:SUMMARY_ROWS]:
+        if fp:
+            finding = describe(entry).replace("|", "\\|")
+        else:
+            finding = f"`{entry['path']}`" if entry else ""
+        lines.append(f"| {f'`{fp}`' if fp else ''} | {finding} | {why} |")
+    if len(rows) > SUMMARY_ROWS:
+        lines.append(f"\n…and {len(rows) - SUMMARY_ROWS} more, in the job log.")
+    return lines
+
+
 def summarize(report: dict, baselined: int, failed: list, notes: list[str]) -> None:
     target = os.environ.get("GITHUB_STEP_SUMMARY")
     if not target:
         return
+    tools = report["tools"].items()
+    ran = ", ".join(f"{name} ({t['findings']})" for name, t in tools if t["status"] == "ran") or "nothing"
+    skipped = ", ".join(f"{name} ({t['reason']})" for name, t in tools if t["status"] == "skipped")
     lines = ["### Repo health " + ("does not hold" if failed else "holds"), ""]
     lines.append(f"{len(report['findings'])} findings, {baselined} baselined.")
-    ran = [f"{name} ({t['findings']})" for name, t in report["tools"].items() if t["status"] == "ran"]
-    skipped = [f"{name} ({t['reason']})" for name, t in report["tools"].items() if t["status"] == "skipped"]
-    lines.append(f"Ran {', '.join(ran) or 'nothing'}." + (f" Skipped {', '.join(skipped)}." if skipped else ""))
-    lines += [f"{n}" for n in notes]
+    lines.append(f"Ran {ran}." + (f" Skipped {skipped}." if skipped else ""))
+    lines += notes
     for heading, rows in failed:
-        lines += ["", f"#### {heading}", "", "| Fingerprint | Finding | Why |", "| --- | --- | --- |"]
-        for fp, entry, why in rows[:SUMMARY_ROWS]:
-            finding = describe(entry).replace("|", "\\|") if entry else ""
-            if not fp:
-                finding = f"`{entry['path']}`" if entry else ""
-            lines.append(f"| {f'`{fp}`' if fp else ''} | {finding} | {why} |")
-        if len(rows) > SUMMARY_ROWS:
-            lines.append(f"\n…and {len(rows) - SUMMARY_ROWS} more, in the job log.")
+        lines += summary_table(heading, rows)
     with open(target, "a", encoding="utf-8") as out:
         out.write("\n".join(lines) + "\n")
 
