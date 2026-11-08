@@ -34,6 +34,14 @@ on:
         type: string
         required: false
         default: regular
+      paths:
+        description: >-
+          Newline-separated globs with GitHub `paths:` syntax. When set, a pull request that
+          touches none of them skips both linters and still reports success; other events
+          always run. Empty runs every time. Typically `.github/**` and `**/*.sh`.
+        type: string
+        required: false
+        default: ''
 
 permissions: {}
 
@@ -54,11 +62,20 @@ jobs:
     env:
       ACTIONLINT_VERSION: ${{ inputs.actionlint-version }}
     steps:
+      # Gates every later step, so a skipped check still reports success (see changed-paths).
+      - name: Check changed paths
+        id: changes
+        uses: $/.github/actions/changed-paths
+        with:
+          paths: ${{ inputs.paths }}
+
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        if: steps.changes.outputs.changed == 'true'
         with:
           persist-credentials: false
 
       - name: Run actionlint
+        if: steps.changes.outputs.changed == 'true'
         run: |
           curl -fsSL \
             "https://github.com/rhysd/actionlint/releases/download/v${ACTIONLINT_VERSION}/actionlint_${ACTIONLINT_VERSION}_linux_amd64.tar.gz" \
@@ -66,6 +83,7 @@ jobs:
           ./actionlint -color
 
       - name: Run shellcheck
+        if: steps.changes.outputs.changed == 'true'
         run: |
           files=$(git ls-files '*.sh')
           if [ -n "${files}" ]; then
@@ -88,11 +106,20 @@ jobs:
       ZIZMOR_VERSION: ${{ inputs.zizmor-version }}
       ZIZMOR_PERSONA: ${{ inputs.zizmor-persona }}
     steps:
+      # Gates every later step, so a skipped check still reports success (see changed-paths).
+      - name: Check changed paths
+        id: changes
+        uses: $/.github/actions/changed-paths
+        with:
+          paths: ${{ inputs.paths }}
+
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        if: steps.changes.outputs.changed == 'true'
         with:
           persist-credentials: false
 
       - name: Run zizmor
+        if: steps.changes.outputs.changed == 'true'
         run: |
           curl -fsSL \
             "https://github.com/zizmorcore/zizmor/releases/download/v${ZIZMOR_VERSION}/zizmor-x86_64-unknown-linux-gnu.tar.gz" \

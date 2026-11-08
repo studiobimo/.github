@@ -65,6 +65,14 @@ on:
         type: boolean
         required: false
         default: true
+      paths:
+        description: >-
+          Newline-separated globs with GitHub `paths:` syntax. When set, a pull request that
+          touches none of them skips this job's steps and still reports success; other events
+          always run. Empty runs every time.
+        type: string
+        required: false
+        default: ''
 
 permissions: {}
 
@@ -83,7 +91,15 @@ jobs:
       group: ci-java-gradle-${{ github.workflow }}-${{ github.ref }}
       cancel-in-progress: ${{ github.event_name == 'pull_request' }}
     steps:
+      # Gates every later step, so a skipped check still reports success (see changed-paths).
+      - name: Check changed paths
+        id: changes
+        uses: $/.github/actions/changed-paths
+        with:
+          paths: ${{ inputs.paths }}
+
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        if: steps.changes.outputs.changed == 'true'
         with:
           persist-credentials: false
 
@@ -91,6 +107,7 @@ jobs:
       # mise, asdf and Gradle's toolchain. The input is the fallback.
       - name: Resolve the JDK version
         id: java
+        if: steps.changes.outputs.changed == 'true'
         env:
           VERSION_FILE: ${{ inputs.java-version-file }}
           FALLBACK: ${{ inputs.java-version }}
@@ -108,15 +125,17 @@ jobs:
       # commit this workflow is running, so the action always matches the version the
       # caller pinned -- no second checkout, no self-referential SHA.
       - uses: $/.github/actions/setup-java-gradle
+        if: steps.changes.outputs.changed == 'true'
         with:
           java-version: ${{ steps.java.outputs.version }}
           java-distribution: ${{ inputs.java-distribution }}
 
       - name: Install a virtual display
-        if: inputs.xvfb
+        if: inputs.xvfb && steps.changes.outputs.changed == 'true'
         run: sudo apt-get update && sudo apt-get install --no-install-recommends -y xvfb
 
       - name: Gradle ${{ inputs.gradle-tasks }}
+        if: steps.changes.outputs.changed == 'true'
         env:
           TASKS: ${{ inputs.gradle-tasks }}
           EXTRA: ${{ inputs.gradle-args }}
@@ -134,11 +153,11 @@ jobs:
 
       # Always: a failed build is exactly when the numbers are worth reading.
       - name: Summarise tests and coverage
-        if: always()
+        if: always() && steps.changes.outputs.changed == 'true'
         uses: $/.github/actions/build-summary
 
       - name: Upload build artifacts
-        if: always() && inputs.artifact-paths != ''
+        if: always() && steps.changes.outputs.changed == 'true' && inputs.artifact-paths != ''
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: ${{ inputs.artifact-name }}
@@ -147,7 +166,7 @@ jobs:
           retention-days: 14
 
       - name: Upload test reports
-        if: failure() && inputs.upload-test-reports
+        if: failure() && steps.changes.outputs.changed == 'true' && inputs.upload-test-reports
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: ${{ inputs.artifact-name }}-reports

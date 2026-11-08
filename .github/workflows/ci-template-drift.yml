@@ -65,6 +65,12 @@ jobs:
       contents: read
       # Opening, rewriting and closing the tracking issue.
       issues: write
+    # Pushing again to a pull request supersedes the run in flight, so it is cancelled rather
+    # than billed to the end. Only pull requests cancel: a schedule or a push to the default
+    # branch always finishes, so the tracking issue is never left half written.
+    concurrency:
+      group: ci-template-drift-${{ github.workflow }}-${{ github.ref }}
+      cancel-in-progress: ${{ github.event_name == 'pull_request' }}
     env:
       TEMPLATE_REPO: ${{ inputs.template-repo }}
     outputs:

@@ -43,6 +43,30 @@ caller — there is no mod to publish here, and this repo releases itself with s
 running release-please against it would fight over the same tags. Both are therefore tested
 cross-repo; see [AGENTS.md](AGENTS.md).
 
+### Skipping work a pull request does not touch
+
+`ci-go`, `ci-java-gradle`, `ci-lint` and `ci-workflows` take a `paths` input: newline-separated
+globs, relative to the repository root, in GitHub's `paths:` syntax. When a pull request touches
+none of them, the job's steps are skipped and the check still reports success, so it can stay a
+required check. A `paths:` filter on the caller's own `on:` block is the wrong tool for this: a
+workflow it skips reports nothing, and a required check that never reports blocks the merge.
+
+```yaml
+jobs:
+  go:
+    uses: studiobimo/.github/.github/workflows/ci-go.yml@v1
+    with:
+      paths: |
+        **/*.go
+        go.mod
+        go.sum
+        .golangci-lint-version
+```
+
+Empty `paths` is the default and runs every time. Every event other than a pull request always
+runs, so a push to the default branch is never skipped. List every file a job reads, including
+the version files it pins its tools with, or a change to one of them is skipped.
+
 ## Composite actions
 
 | Action                              | What it does                                                 |
@@ -52,6 +76,7 @@ cross-repo; see [AGENTS.md](AGENTS.md).
 | `.github/actions/issue-title`       | The issue title check, for direct use                        |
 | `.github/actions/repo-health`       | The repo health check, for direct use after your own setup   |
 | `.github/actions/build-summary`     | JUnit + JaCoCo numbers into the job summary                  |
+| `.github/actions/changed-paths`     | Whether a pull request touches any of a list of globs        |
 
 ## Git hooks
 

@@ -1,0 +1,36 @@
+name: Changed paths
+description: >-
+  Reports whether a pull request changes any file matching a list of globs, so a job can skip
+  its expensive steps and still report success. Unlike a caller's `paths:` filter, which never
+  reports a status, the job always runs and only its work is gated, so the check can stay a
+  required status check. Non-pull-request events and an empty list always answer true. Needs
+  `contents: read` and no checkout.
+
+inputs:
+  paths:
+    description: >-
+      Newline-separated globs with GitHub `paths:` semantics (`*`, `**`, `?` and `+` on the
+      preceding character, `[...]`, and `!` to exclude an earlier match). Empty means always
+      changed.
+    required: false
+    default: ''
+  token:
+    description: Token for the compare API. Needs contents read on the repository.
+    required: false
+    default: ${{ github.token }}
+
+outputs:
+  changed:
+    description: "'true' when the pull request touches a matching path or the guard does not apply, else 'false'."
+    value: ${{ steps.guard.outputs.changed }}
+
+runs:
+  using: composite
+  steps:
+    - name: Compare changed files
+      id: guard
+      shell: bash
+      env:
+        PATHS: ${{ inputs.paths }}
+        TOKEN: ${{ inputs.token }}
+      run: node "${GITHUB_ACTION_PATH}/changed-paths.mjs"

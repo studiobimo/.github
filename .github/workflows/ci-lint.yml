@@ -44,6 +44,15 @@ on:
         type: number
         required: false
         default: 15
+      paths:
+        description: >-
+          Newline-separated globs with GitHub `paths:` syntax. When set, a pull request that
+          touches none of them skips the hooks and still reports success; other events always
+          run. Empty runs every time. The hooks cover the whole tree, so list every path a hook
+          reads, including its config files.
+        type: string
+        required: false
+        default: ''
 
 permissions: {}
 
@@ -64,7 +73,15 @@ jobs:
       group: ci-lint-${{ github.workflow }}-${{ github.ref }}
       cancel-in-progress: ${{ github.event_name == 'pull_request' }}
     steps:
+      # Gates every later step, so a skipped check still reports success (see changed-paths).
+      - name: Check changed paths
+        id: changes
+        uses: $/.github/actions/changed-paths
+        with:
+          paths: ${{ inputs.paths }}
+
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        if: steps.changes.outputs.changed == 'true'
         with:
           persist-credentials: false
 
@@ -72,10 +89,12 @@ jobs:
       # passes --locked itself, so a tool whose checksum is not recorded fails here.
       # Its cache is keyed on the mise files, so a version bump rebuilds it.
       - uses: jdx/mise-action@7a4e45a543138629540c9a1616d08632b893e492 # v5.0.1
+        if: steps.changes.outputs.changed == 'true'
         with:
           version: ${{ inputs.mise-version }}
 
       - name: Run the hooks
+        if: steps.changes.outputs.changed == 'true'
         env:
           HOOK: ${{ inputs.hook }}
           LEFTHOOK_EXCLUDE: ${{ inputs.exclude }}
