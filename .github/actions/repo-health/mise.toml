@@ -1,0 +1,25 @@
+# The tools repo-health runs, at one version each, apart from this repository's own
+# mise.toml: the action installs only these, into the caller's job, and never reads the
+# caller's mise.toml. mise.lock beside this file records every checksum, and .mise/locks/
+# pins each npm and pipx tool's dependencies, so a run installs the same bytes every time.
+#
+# Bumped by hand like the root mise.toml: change a version, then, from this directory,
+#   MISE_CEILING_PATHS="$(cd .. && pwd)" mise lock
+# and commit this file, mise.lock and .mise/locks/ together. The ceiling keeps mise from
+# merging in the repository's root mise.toml.
+
+[settings]
+lockfile = true
+
+[tools]
+python = "3.13.9"
+uv = "0.13.5"
+node = "24.21.0"
+"npm:knip" = "6.44.1"
+"npm:jscpd" = "5.4.2"
+"pipx:vulture" = "2.16"
+"pipx:lizard" = "1.24.3"
+"pipx:sqlfluff" = "4.5.0"
+"pipx:semgrep" = "1.183.0"
+"aqua:ast-grep/ast-grep" = "0.51.0"
+"github:Goldziher/uncomment" = "3.10.3"

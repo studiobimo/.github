@@ -1,0 +1,157 @@
+name: Repo health
+description: >-
+  Runs knip, jscpd, vulture, lizard, ast-grep, sqlfluff, semgrep and uncomment over the
+  git-tracked files, into one fingerprinted report, and holds it to the baseline ratchet.
+
+# A composite action rather than only a reusable workflow, so it runs inside the caller's own
+# job: after the caller's setup (a `pnpm install` that knip's config needs, say), and with the
+# token the caller already has. It needs contents: read and issues: read; a reusable workflow
+# would have to request those itself, and fail outright in a caller that granted less.
+# ci-repo-health is the ready-made job around it.
+#
+# The tools are this action's own, pinned in the mise.toml beside this file and installed
+# from its mise.lock. The caller's mise.toml is never read, and nothing but mise itself is
+# put on its PATH.
+#
+# The rules, the report and the baseline are documented in .devtools/repo-health.py.
+
+inputs:
+  base:
+    description: >-
+      The branch whose baseline a pull request may only shrink: main, or develop where that is
+      where work lands. Empty means the repository's default branch. It is only compared on
+      pull_request and merge_group events.
+    required: false
+    default: ''
+  baseline:
+    description: The baseline file, relative to the repository root.
+    required: false
+    default: .repo-health/baseline.json
+  minimum-reduction:
+    description: >-
+      Baselined findings a pull request has to resolve, or every one when fewer are left.
+      0 turns the rule off, for a bot's dependency bump, say.
+    required: false
+    default: '1'
+  tools:
+    description: Comma-separated subset of the tools to run. Empty runs every one the repository has something for.
+    required: false
+    default: ''
+  semgrep-config:
+    description: >-
+      semgrep's --config. Empty uses the repository's .semgrep.yml or .semgrep/. A registry
+      ruleset (p/default) changes on semgrep's schedule rather than the repository's, so a pull
+      request can fail on a rule published after it was opened.
+    required: false
+    default: ''
+  sqlfluff-dialect:
+    description: sqlfluff's dialect where the repository has no .sqlfluff.
+    required: false
+    default: ansi
+  artifact-name:
+    description: Name of the artifact holding the report and the proposed baseline. Change it to run this twice in one workflow.
+    required: false
+    default: repo-health
+  mise-version:
+    description: mise release to install.
+    required: false
+    default: '2026.10.0'
+  token:
+    description: "Reads the base branch's baseline and the issues it names: contents: read, issues: read."
+    required: false
+    default: ${{ github.token }}
+
+outputs:
+  report:
+    description: Path of the JSON report.
+    value: ${{ steps.paths.outputs.report }}
+
+runs:
+  using: composite
+  steps:
+    # mise keeps these tools in a data directory of their own, apart from any the caller
+    # installs, so the cache below holds exactly them and is keyed on their lockfile.
+    - id: paths
+      shell: bash
+      run: |
+        dir="${RUNNER_TEMP}/repo-health"
+        mkdir -p "${dir}"
+        {
+          echo "dir=${dir}"
+          echo "report=${dir}/report.json"
+          echo "data=${RUNNER_TOOL_CACHE:-${RUNNER_TEMP}}/repo-health-mise"
+          echo "lock=$(sha256sum "${GITHUB_ACTION_PATH}/mise.lock" | cut -c1-16)"
+        } >> "${GITHUB_OUTPUT}"
+
+    # Only the mise binary: mise-action would install and cache from the caller's mise files.
+    - uses: jdx/mise-action@7a4e45a543138629540c9a1616d08632b893e492 # v5.0.1
+      with:
+        version: ${{ inputs.mise-version }}
+        install: false
+        cache: false
+        add_shims_to_path: false
+        env: false
+        export_path: false
+
+    - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+      with:
+        path: ${{ steps.paths.outputs.data }}
+        key: repo-health-${{ runner.os }}-${{ runner.arch }}-${{ steps.paths.outputs.lock }}
+
+    # The ceiling stops mise at .github/actions, so it reads this action's mise.toml alone and
+    # not the root one of this repository. --locked refuses a checksum mise.lock lacks.
+    - name: Install the tools
+      shell: bash
+      env:
+        MISE_DATA_DIR: ${{ steps.paths.outputs.data }}
+        MISE_CEILING_PATHS: ${{ github.action_path }}/..
+        MISE_TRUSTED_CONFIG_PATHS: ${{ github.action_path }}
+      run: mise -C "${GITHUB_ACTION_PATH}" install --locked
+
+    # GITHUB_ACTION_PATH is this action's directory inside a checkout of this whole repo, so
+    # .devtools/ is three levels up, at the commit the caller resolved. The tools are on PATH
+    # for this step only, and run from the caller's checkout.
+    - name: Scan
+      shell: bash
+      env:
+        MISE_DATA_DIR: ${{ steps.paths.outputs.data }}
+        MISE_CEILING_PATHS: ${{ github.action_path }}/..
+        MISE_TRUSTED_CONFIG_PATHS: ${{ github.action_path }}
+        REPORT: ${{ steps.paths.outputs.report }}
+        TOOLS: ${{ inputs.tools }}
+        SEMGREP_CONFIG: ${{ inputs.semgrep-config }}
+        SQLFLUFF_DIALECT: ${{ inputs.sqlfluff-dialect }}
+      run: |
+        eval "$(mise -C "${GITHUB_ACTION_PATH}" env -s bash)"
+        python3 "${GITHUB_ACTION_PATH}/../../../.devtools/repo-health.py" scan --output "${REPORT}" \
+          --tools "${TOOLS}" --semgrep-config "${SEMGREP_CONFIG}" --sqlfluff-dialect "${SQLFLUFF_DIALECT}"
+
+    # A pull request, or a merge queue entry, is compared with the base branch; any other run
+    # only holds the report to the baseline it was committed with.
+    - name: Hold the baseline ratchet
+      shell: bash
+      env:
+        MISE_DATA_DIR: ${{ steps.paths.outputs.data }}
+        MISE_CEILING_PATHS: ${{ github.action_path }}/..
+        MISE_TRUSTED_CONFIG_PATHS: ${{ github.action_path }}
+        GH_TOKEN: ${{ inputs.token }}
+        GH_REPO: ${{ github.repository }}
+        DIR: ${{ steps.paths.outputs.dir }}
+        BASELINE: ${{ inputs.baseline }}
+        BASE: >-
+          ${{ (github.event_name == 'pull_request' || github.event_name == 'merge_group')
+          && (inputs.base || github.event.repository.default_branch) || '' }}
+        MINIMUM_REDUCTION: ${{ inputs.minimum-reduction }}
+      run: |
+        eval "$(mise -C "${GITHUB_ACTION_PATH}" env -s bash)"
+        python3 "${GITHUB_ACTION_PATH}/../../../.devtools/repo-health.py" check \
+          --report "${DIR}/report.json" --baseline "${BASELINE}" --base "${BASE}" \
+          --minimum-reduction "${MINIMUM_REDUCTION}" --proposal "${DIR}/baseline.json"
+
+    # The proposed baseline is what a first baseline, or a cleanup, starts from.
+    - if: ${{ !cancelled() }}
+      uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+      with:
+        name: ${{ inputs.artifact-name }}
+        path: ${{ steps.paths.outputs.dir }}
+        if-no-files-found: ignore
