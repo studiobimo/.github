@@ -384,16 +384,31 @@ dependencies, in [the action's own `mise.toml`](.github/actions/repo-health/mise
 
 A tool runs when the repository has what it reads, and is configured by its own file:
 
-| Tool                                                | Runs when the repo has      | Configured by                                     |
-| --------------------------------------------------- | --------------------------- | ------------------------------------------------- |
-| [knip](https://knip.dev/)                           | `package.json`              | `knip.json`, `knip.jsonc`, …                      |
-| [jscpd](https://github.com/kucherenko/jscpd)        | any file                    | `.jscpd.json`; without one, lockfiles are skipped |
-| [vulture](https://github.com/jendrikseipp/vulture)  | `*.py`                      | `[tool.vulture]` in `pyproject.toml`              |
-| [lizard](https://github.com/terryyin/lizard)        | any file it parses          | its default thresholds (CCN 15)                   |
-| [ast-grep](https://ast-grep.github.io/)             | `sgconfig.yml`              | the rules it points at                            |
-| [sqlfluff](https://sqlfluff.com/)                   | `*.sql`                     | `.sqlfluff`, else the `sqlfluff-dialect` input    |
-| [semgrep](https://semgrep.dev/)                     | `.semgrep.yml`, `.semgrep/` | those rules, or the `semgrep-config` input        |
-| [uncomment](https://github.com/Goldziher/uncomment) | `.uncomment.toml`           | the same file                                     |
+| Tool                                                | Runs when the repo has           | Configured by                                      |
+| --------------------------------------------------- | -------------------------------- | -------------------------------------------------- |
+| [knip](https://knip.dev/)                           | `package.json`                   | `knip.json`, `knip.jsonc`, …                       |
+| [jscpd](https://github.com/kucherenko/jscpd)        | any file                         | `.jscpd.json`; without one, lockfiles are skipped  |
+| [vulture](https://github.com/jendrikseipp/vulture)  | `*.py`                           | `[tool.vulture]` in `pyproject.toml`               |
+| [ruff](https://docs.astral.sh/ruff/)                | `*.py`                           | nothing: a fixed rule set, and `# noqa` is ignored |
+| [lizard](https://github.com/terryyin/lizard)        | any file it parses               | nothing: CCN 15, 80 lines, 6 parameters            |
+| [ast-grep](https://ast-grep.github.io/)             | JS, TS or Python; `sgconfig.yml` | the bundled rules, and the ones it points at       |
+| [sqlfluff](https://sqlfluff.com/)                   | `*.sql`                          | `.sqlfluff`, else the `sqlfluff-dialect` input     |
+| [semgrep](https://semgrep.dev/)                     | `.semgrep.yml`, `.semgrep/`      | those rules, or the `semgrep-config` input         |
+| [uncomment](https://github.com/Goldziher/uncomment) | `.uncomment.toml`                | the same file                                      |
+
+ruff, lizard and the bundled ast-grep rules are the floor every repository is held to, so a
+repository's config does not reach them. ruff runs security (`S`), likely bugs (`B`), blind and
+bare excepts (`BLE`, `E722`), naive datetimes (`DTZ`), blocking calls in async code (`ASYNC`),
+logging misuse (`LOG`), pylint warnings (`PLW`) and needless code (`PIE`), leaving out `S603`
+and `S607`, which flag every `subprocess` call. The [bundled rules](.github/actions/repo-health/rules.yml)
+make a suppression comment (`eslint-disable`, `@ts-ignore`, `# noqa`, `# type: ignore`, …) a
+finding of its own, since it hides one from the analyser that made it.
+
+A finding is an error or a warning. Errors are held to the baseline. Warnings are in the report
+and the summary, and annotated on the files a pull request changes, but never fail it and never
+enter the baseline: the bundled magic-number and hardcoded-JSX-text rules, a repository's own
+ast-grep rules below `error`, and sqlfluff rules its config demotes. Test files may assert,
+hardcode a fake secret, use a plain random and spell out numbers.
 
 semgrep and uncomment wait for a config on purpose. semgrep's registry rulesets change on
 semgrep's schedule, so `p/default` would fail a pull request for a rule published after it was

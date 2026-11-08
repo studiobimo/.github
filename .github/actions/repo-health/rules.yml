@@ -1,0 +1,115 @@
+# The rules repo-health brings to every repository, run by ast-grep beside any the repository
+# has. A suppression comment is an error: it hides a finding from the analyser that made it, so
+# it is baselined or removed like any other. A magic number and hardcoded JSX text are
+# warnings: reported, and shown on the lines a pull request changes, but never failing it.
+#
+# Changing a rule here reaches every repository at v1. A finding it adds in code that was
+# already there may join that repository's baseline; see .devtools/repo-health.py.
+
+id: repo-health-suppression
+language: typescript
+severity: error
+message: A suppression comment hides a finding; fix what it hides instead.
+rule:
+  kind: comment
+  regex: '(eslint-disable|@ts-ignore|@ts-expect-error|@ts-nocheck|biome-ignore|oxlint-disable|jscpd:ignore|istanbul ignore|c8 ignore)'
+---
+id: repo-health-magic-number
+language: typescript
+severity: warning
+message: Magic number; give it a named constant.
+rule:
+  kind: number
+  not:
+    any:
+      - regex: '^[012]$'
+      - inside: { kind: enum_body, stopBy: end }
+      - inside:
+          kind: variable_declarator
+          has: { field: name, regex: '^[A-Z][A-Z0-9_]*$' }
+          stopBy: end
+---
+id: repo-health-suppression
+language: tsx
+severity: error
+message: A suppression comment hides a finding; fix what it hides instead.
+rule:
+  kind: comment
+  regex: '(eslint-disable|@ts-ignore|@ts-expect-error|@ts-nocheck|biome-ignore|oxlint-disable|jscpd:ignore|istanbul ignore|c8 ignore)'
+---
+id: repo-health-magic-number
+language: tsx
+severity: warning
+message: Magic number; give it a named constant.
+rule:
+  kind: number
+  not:
+    any:
+      - regex: '^[012]$'
+      - inside: { kind: enum_body, stopBy: end }
+      - inside:
+          kind: variable_declarator
+          has: { field: name, regex: '^[A-Z][A-Z0-9_]*$' }
+          stopBy: end
+---
+id: repo-health-suppression
+language: javascript
+severity: error
+message: A suppression comment hides a finding; fix what it hides instead.
+rule:
+  kind: comment
+  regex: '(eslint-disable|@ts-ignore|@ts-expect-error|@ts-nocheck|biome-ignore|oxlint-disable|jscpd:ignore|istanbul ignore|c8 ignore)'
+---
+id: repo-health-magic-number
+language: javascript
+severity: warning
+message: Magic number; give it a named constant.
+rule:
+  kind: number
+  not:
+    any:
+      - regex: '^[012]$'
+      - inside:
+          kind: variable_declarator
+          has: { field: name, regex: '^[A-Z][A-Z0-9_]*$' }
+          stopBy: end
+---
+id: repo-health-jsx-text
+language: tsx
+severity: warning
+message: User-facing text is hardcoded in JSX; move it to a message catalog.
+rule:
+  kind: jsx_text
+  regex: '[A-Za-z]'
+---
+id: repo-health-jsx-text
+language: javascript
+severity: warning
+message: User-facing text is hardcoded in JSX; move it to a message catalog.
+rule:
+  kind: jsx_text
+  regex: '[A-Za-z]'
+---
+id: repo-health-suppression
+language: python
+severity: error
+message: A suppression comment hides a finding; fix what it hides instead.
+rule:
+  kind: comment
+  regex: '(noqa|type:\s*ignore|pylint:\s*disable|pyright:\s*ignore|mypy:\s*ignore|nosec|nosemgrep|pragma:\s*no cover|lizard forgives)'
+---
+id: repo-health-magic-number
+language: python
+severity: warning
+message: Magic number; give it a named constant.
+rule:
+  any:
+    - kind: integer
+    - kind: float
+  not:
+    any:
+      - regex: '^[012]$'
+      - inside:
+          kind: assignment
+          has: { field: left, regex: '^[A-Z][A-Z0-9_]*$' }
+          stopBy: end

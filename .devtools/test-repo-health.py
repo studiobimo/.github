@@ -72,7 +72,9 @@ class Canned(rh.Repo):
             (self.work / "jscpd").mkdir()
             (self.work / "jscpd" / "jscpd-report.json").write_text(self.outputs[tool])
             return ""
-        return self.outputs[tool]
+        out = self.outputs[tool]
+        # A tool run more than once prints each run's output in turn.
+        return out.pop(0) if isinstance(out, list) else out
 
 
 def dup(first, second):
@@ -87,6 +89,12 @@ def dup(first, second):
 
 def rows(findings):
     return [(f.tool, f.rule, f.path, f.line, f.anchor) for f in findings]
+
+
+def match(rule, file, line, text, severity="error"):
+    """One line of ast-grep's --json=stream."""
+    found = {"text": text, "range": {"start": {"line": line - 1}}, "file": file, "ruleId": rule}
+    return json.dumps({**found, "message": rule, "severity": severity}) + "\n"
 
 
 class Parsers(unittest.TestCase):
@@ -160,20 +168,47 @@ class Parsers(unittest.TestCase):
 
     def test_lizard(self):
         out = "src/a.py:26: warning: Parser::parse has 17 NLOC, 16 CCN, 112 token, 1 PARAM, 17 length, 0 ND\n"
-        [finding] = rh.lizard(Canned({"src/a.py": ""}, {"lizard": out}))
+        repo = Canned({"src/a.py": ""}, {"lizard": out})
+        [finding] = rh.lizard(repo)
+        self.assertEqual(repo.commands["lizard"][2:8], ["--CCN", "15", "--length", "80", "--arguments", "6"])
         self.assertEqual((finding.rule, finding.line, finding.anchor), ("complexity", 26, "Parser::parse"))
         self.assertTrue(finding.message.startswith("Parser::parse has 17 NLOC, 16 CCN"))
 
-    def test_ast_grep(self):
-        match = {
-            "text": "console.log(  x )",
-            "range": {"start": {"line": 2}},
-            "file": "src/i.js",
-            "ruleId": "no-console",
-            "message": "Avoid console.log",
-        }
-        repo = Canned({"sgconfig.yml": "", "src/i.js": ""}, {"ast-grep": json.dumps(match) + "\n"})
-        self.assertEqual(rows(rh.ast_grep(repo)), [("ast-grep", "no-console", "src/i.js", 3, "console.log( x )")])
+    def test_ast_grep_runs_the_bundled_rules_and_the_repository_s(self):
+        bundled = match("repo-health-suppression", "src/i.js", 2, "// eslint-disable-line")
+        bundled += match("repo-health-magic-number", "src/i.js", 3, "86400", "warning")
+        own = match("no-console", "src/i.js", 3, "console.log(  x )", "hint")
+        repo = Canned({"sgconfig.yml": "", "src/i.js": ""}, {"ast-grep": [bundled, own]})
+        found = rh.ast_grep(repo)
+        self.assertEqual(
+            [(f.rule, f.line, f.anchor, f.severity) for f in found],
+            [
+                ("repo-health-suppression", 2, "// eslint-disable-line", "error"),
+                ("repo-health-magic-number", 3, "86400", "warning"),
+                ("no-console", 3, "console.log( x )", "warning"),
+            ],
+        )
+
+    def test_ast_grep_brings_its_rules_to_any_python_or_javascript(self):
+        repo = Canned({"a.py": ""}, {"ast-grep": ""})
+        self.assertEqual(rh.ast_grep(repo), [])
+        self.assertEqual(repo.commands["ast-grep"][2:4], ["--rule", str(rh.RULES)])
+        with self.assertRaises(rh.Skip):
+            rh.ast_grep(Canned({"README.md": ""}, {}))
+
+    def test_ruff(self):
+        out = [{"code": "S307", "filename": "a.py", "location": {"row": 2}, "message": "Use of eval"}]
+        repo = Canned({"a.py": "\n  eval(x)  # noqa: S307\n"}, {"ruff": json.dumps(out)})
+        self.assertEqual(rows(rh.ruff(repo)), [("ruff", "S307", "a.py", 2, "eval(x) # noqa: S307")])
+        self.assertIn("--isolated", repo.commands["ruff"])
+        self.assertIn("--ignore-noqa", repo.commands["ruff"])
+
+    def test_test_code_may_assert_and_use_numbers(self):
+        cases = {("S101", "tests/test_a.py"): True, ("S101", "src/a.py"): False,
+                 ("repo-health-magic-number", "src/a.test.ts"): True, ("S307", "tests/test_a.py"): False}
+        for (rule, path), exempt in cases.items():
+            with self.subTest(rule=rule, path=path):
+                self.assertEqual(rh.exempt(rh.Finding("ruff", rule, path, 1, "", "")), exempt)
 
     def test_sqlfluff(self):
         out = [
@@ -186,7 +221,10 @@ class Parsers(unittest.TestCase):
             }
         ]
         repo = Canned({"q.sql": "select a,b  from t\n"}, {"sqlfluff": json.dumps(out)})
-        self.assertEqual(rows(rh.sqlfluff(repo)), [("sqlfluff", "LT09", "q.sql", 1, "select a,b from t")])
+        found = rh.sqlfluff(repo)
+        self.assertEqual(rows(found), [("sqlfluff", "LT09", "q.sql", 1, "select a,b from t"), ("sqlfluff", "AM04", "q.sql", 1, "select a,b from t")])
+        # A rule the repository's config demotes is reported as a warning.
+        self.assertEqual([f.severity for f in found], ["error", "warning"])
         self.assertEqual(repo.commands["sqlfluff"][-3:], ["--dialect", "ansi", "q.sql"])
 
     def test_sqlfluff_takes_the_repository_dialect(self):
@@ -295,8 +333,8 @@ class Ratchet(unittest.TestCase):
         self.output = out.getvalue()
         return code
 
-    def pull_request(self, *extra):
-        return self.check("--base-dir", str(self.base), *extra)
+    def pull_request(self, *extra, **env):
+        return self.check("--base-dir", str(self.base), *extra, **env)
 
     def test_nothing_found_nothing_baselined(self):
         self.files([], [])
@@ -428,6 +466,20 @@ class Ratchet(unittest.TestCase):
         entries = json.loads((self.dir / "proposal.json").read_text())["findings"]
         self.assertEqual([(e["fingerprint"], e["issue"]) for e in entries], [("aa", 7), ("bb", None)])
         self.assertNotIn("line", entries[0])
+
+    def test_warnings_never_fail_and_show_only_where_the_pull_request_changed(self):
+        add(self.base, {"old.py": "x = 86400\n", "new.py": "x = 1\n"})
+        subprocess.run(["git", "-c", "user.name=test", "-c", "user.email=test@example.com", "commit", "-qm", "base"], cwd=self.base, check=True)
+        add(self.root, {"old.py": "x = 86400\n", "new.py": "x = 3600\n"})
+        subprocess.run(["git", "-c", "user.name=test", "-c", "user.email=test@example.com", "commit", "-qm", "base"], cwd=self.root, check=True)
+        base_sha = subprocess.run(["git", "rev-parse", "HEAD"], cwd=self.base, capture_output=True, text=True, check=True).stdout.strip()
+        subprocess.run(["git", "fetch", "-q", str(self.base), base_sha], cwd=self.root, check=True)
+        warn = {"severity": "warning", "rule": "repo-health-magic-number"}
+        self.files([{**finding("w1", "old.py"), **warn}, {**finding("w2", "new.py"), **warn}], [], [])
+        self.assertEqual(self.pull_request(GITHUB_ACTIONS="true"), 0, self.output)
+        self.assertIn("2 warnings", self.output)
+        self.assertIn("::warning file=new.py,", self.output)
+        self.assertNotIn("::warning file=old.py,", self.output)
 
     def test_a_pull_request_sees_each_new_finding_on_its_line(self):
         self.files([finding("aa")], [])
