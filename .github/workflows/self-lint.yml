@@ -23,15 +23,8 @@ jobs:
     if: ${{ !startsWith(github.head_ref, 'dependabot/') }}
     permissions:
       contents: read
-    # zizmor prefers `$/` over `./`, because a workspace-relative ref can load
-    # something a previous step cloned at runtime. That risk is real for a step-level
-    # action ref -- it is why the actions moved to `$/` -- but not for a job-level
-    # reusable-workflow call, which GitHub resolves when the run is queued, never from
-    # the workspace. `./` buys something concrete in exchange: actionlint validates a
-    # local call against the callee's declarations (it catches an input name that does
-    # not exist, and lists the ones that do), while `$/` it cannot parse at all, so the
-    # call would go unchecked. Keeping the validation.
-    uses: ./.github/workflows/ci-lint.yml # zizmor: ignore[self-repository]
+    # `./` rather than `$/`, so actionlint checks the call; .github/zizmor.yml says why.
+    uses: ./.github/workflows/ci-lint.yml
 
   # ci-workflows is the library for repos with no lefthook config. Nothing else here
   # calls it, so this is its only test.
@@ -39,7 +32,7 @@ jobs:
     if: ${{ !startsWith(github.head_ref, 'dependabot/') }}
     permissions:
       contents: read
-    uses: ./.github/workflows/ci-workflows.yml # zizmor: ignore[self-repository]
+    uses: ./.github/workflows/ci-workflows.yml
 
   repo-checks:
     if: ${{ !startsWith(github.head_ref, 'dependabot/') }}

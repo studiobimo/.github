@@ -22,4 +22,4 @@ jobs:
     permissions:
       contents: read
     # `./` rather than `$/` on purpose; self-lint.yml explains why.
-    uses: ./.github/workflows/ci-pr.yml # zizmor: ignore[self-repository]
+    uses: ./.github/workflows/ci-pr.yml

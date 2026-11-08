@@ -14,4 +14,4 @@ jobs:
     permissions:
       contents: read
       issues: write
-    uses: ./.github/workflows/ci-tools-outdated.yml # zizmor: ignore[self-repository]
+    uses: ./.github/workflows/ci-tools-outdated.yml
