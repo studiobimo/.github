@@ -1,9 +1,11 @@
 #!/usr/bin/env python3
 """Repo health: one fingerprinted report from many analysers, held to a baseline ratchet.
 
-    repo-health.py scan  [--tools a,b] [--semgrep-config CFG] [--sqlfluff-dialect D] --output REPORT
-    repo-health.py check --report REPORT --baseline BASELINE [--base REF] [--minimum-reduction N]
-                         [--proposal FILE]
+    repo-health.py scan  --output REPORT [SCAN OPTIONS]
+    repo-health.py check --report REPORT --baseline BASELINE [--base-dir DIR] [--minimum-reduction N]
+                         [--allow-config-change] [--proposal FILE] [SCAN OPTIONS]
+
+    SCAN OPTIONS: [--tools a,b] [--semgrep-config CFG] [--sqlfluff-dialect D] [--install]
 
 `scan` runs every analyser the repository has something for, over its git-tracked files only,
 and writes their findings into one JSON report in one shape. A tool runs when the repository
@@ -18,27 +20,35 @@ has what it reads, and is configured the way it always is, by its own file:
     semgrep    .semgrep.yml or .semgrep/       (or --semgrep-config)
     uncomment  .uncomment.toml                 (the same file)
 
+--install runs `pnpm install --frozen-lockfile` or `npm ci` beside each tracked lockfile
+before knip, with lifecycle scripts off: knip ties a binary a script runs to its package, and
+loads configs that import dependencies, through node_modules.
+
 Every finding gets a fingerprint that survives line moves: a hash of the tool, the rule, the
 path and an anchor that is the thing found (a symbol name, or the flagged source line with its
 whitespace collapsed), plus an index among identical ones. The line number is reported but
 never hashed.
 
 `check` holds the report to the baseline, a reviewed list of the findings a repository still
-carries, each tracked by an open issue:
+carries, each tracked by an open issue. The baseline file has to exist, empty or not:
 
     1. no finding is missing from the baseline (nothing new);
     2. no baseline entry is missing from the report (a fixed finding leaves the baseline);
     3. every entry names an open issue of this repository;
-    and, given --base, against the baseline on that branch:
-    4. nothing was added to the baseline;
-    5. at least --minimum-reduction of its entries were resolved, or all of them if fewer.
+    and, given --base-dir, a checkout of the commit a pull request merges into:
+    4. nothing was added to its baseline, except a finding its own code already has: one a
+       newer tool or rule found in code this pull request did not write;
+    5. at least --minimum-reduction of its entries were resolved, or all of them if fewer;
+    6. no analyser's config changed, unless --allow-config-change, since a config can hide
+       findings and deleting one can turn its tool off.
 
-A base branch with no baseline yet skips 4 and 5, which is how the first baseline lands.
+A base with no baseline file yet skips 4 to 6: that is the pull request adopting the check.
+For 4, only a pull request that adds entries pays for scanning the base.
 --proposal writes the baseline this run would accept: the entries still found, plus every new
 finding with `"issue": null` for a person to fill in.
 
-`check` reads the base baseline and the issues with gh: GH_TOKEN and GH_REPO, with
-contents: read and issues: read. Exit codes: 0 passes, 1 does not, 2 could not tell.
+`check` reads the issues with gh: GH_TOKEN and GH_REPO, with issues: read.
+Exit codes: 0 passes, 1 does not, 2 could not tell.
 """
 
 from __future__ import annotations
@@ -51,7 +61,7 @@ import re
 import subprocess
 import sys
 import tempfile
-import urllib.parse
+import tomllib
 from collections import defaultdict
 from dataclasses import dataclass
 from pathlib import Path
@@ -125,9 +135,10 @@ class Repo:
         lines = self._lines[path]
         return " ".join(lines[number - 1].split()) if 0 < number <= len(lines) else ""
 
-    def run(self, tool: str, cmd: list[str], ok: tuple[int, ...] = (0,)) -> str:
+    def run(self, tool: str, cmd: list[str], ok: tuple[int, ...] = (0,), cwd: Path | None = None) -> str:
+        env = {**os.environ, "COREPACK_ENABLE_DOWNLOAD_PROMPT": "0"}
         try:
-            proc = subprocess.run(cmd, cwd=self.root, capture_output=True, text=True, check=False)
+            proc = subprocess.run(cmd, cwd=cwd or self.root, env=env, capture_output=True, text=True, check=False)
         except FileNotFoundError:
             raise Fail(f"{tool}: {cmd[0]} is not installed") from None
         if proc.returncode not in ok:
@@ -174,9 +185,30 @@ KNIP = {
 }
 
 
+def install(repo: Repo) -> None:
+    """The dependencies beside each tracked lockfile, so knip sees what a developer's checkout has."""
+    for lockfile in repo.tracked:
+        name = Path(lockfile).name
+        if name not in LOCKFILES:
+            continue
+        where = repo.root / Path(lockfile).parent
+        print(f"  installing in {Path(lockfile).parent.as_posix()}/ with {name}")
+        repo.run("install", LOCKFILES[name], cwd=where)
+
+
+# Lifecycle scripts stay off: the pull request's code is analysed, never run.
+LOCKFILES = {
+    "pnpm-lock.yaml": ["corepack", "pnpm", "install", "--frozen-lockfile", "--ignore-scripts"],
+    "package-lock.json": ["npm", "ci", "--ignore-scripts", "--no-audit", "--no-fund"],
+    "npm-shrinkwrap.json": ["npm", "ci", "--ignore-scripts", "--no-audit", "--no-fund"],
+}
+
+
 def knip(repo: Repo) -> list[Finding]:
     if not repo.has("package.json"):
         raise Skip("no package.json")
+    if repo.args.install:
+        install(repo)
     out = repo.run("knip", ["knip", "--reporter", "json", "--no-progress", "--no-exit-code"])
     found = []
     for entry in json.loads(out).get("issues", []):
@@ -357,12 +389,12 @@ def fingerprint(findings: list[Finding]) -> list[Finding]:
     return sorted(findings, key=lambda f: (f.path, f.line, f.tool, f.rule, f.fingerprint))
 
 
-def scan(args: argparse.Namespace) -> int:
+def collect(root: Path, args: argparse.Namespace) -> dict:
+    """Every analyser's findings in the repository at `root`, as a report."""
     selected = set(args.tools.split(",")) if args.tools else set(TOOLS)
     unknown = selected - set(TOOLS)
     if unknown:
         raise Fail(f"unknown tools: {', '.join(sorted(unknown))}; known: {', '.join(TOOLS)}")
-    root = Path(git(Path.cwd(), "rev-parse", "--show-toplevel").strip())
     findings: list[Finding] = []
     tools: dict[str, dict] = {}
     with tempfile.TemporaryDirectory() as work:
@@ -380,9 +412,17 @@ def scan(args: argparse.Namespace) -> int:
             tools[name] = {"status": "ran", "findings": len(found)}
             findings += found
             print(f"✔ {name}: {len(found)} findings")
-    report = {"version": REPORT_VERSION, "tools": tools, "findings": [f.as_json() for f in fingerprint(findings)]}
+    return {"version": REPORT_VERSION, "tools": tools, "findings": [f.as_json() for f in fingerprint(findings)]}
+
+
+def toplevel() -> Path:
+    return Path(git(Path.cwd(), "rev-parse", "--show-toplevel").strip())
+
+
+def scan(args: argparse.Namespace) -> int:
+    report = collect(toplevel(), args)
     write_json(Path(args.output), report)
-    print(f"{len(findings)} findings in {args.output}")
+    print(f"{len(report['findings'])} findings in {args.output}")
     return 0
 
 
@@ -423,15 +463,70 @@ def load_baseline(text: str, where: str) -> dict[str, dict]:
     return baseline
 
 
-def base_baseline(repo: str, path: str, ref: str) -> dict[str, dict] | None:
-    """The baseline on the base branch, or None where that branch has none yet."""
-    endpoint = f"repos/{repo}/contents/{urllib.parse.quote(path)}?ref={urllib.parse.quote(ref, safe='')}"
-    code, out, err = gh("api", "-H", "Accept: application/vnd.github.raw", endpoint)
-    if code != 0:
-        if not_found(err):
-            return None
-        raise Fail(f"could not read {path} on {ref}: {err.strip()}")
-    return load_baseline(out, f"{path} on {ref}")
+def read_baseline(root: Path, path: str) -> dict[str, dict] | None:
+    """The baseline committed at `root`, or None where there is none."""
+    file = root / path
+    return load_baseline(file.read_text(encoding="utf-8"), str(file)) if file.is_file() else None
+
+
+SGCONFIG_DIRS = re.compile(r"^(ruleDirs|utilDirs)\s*:\s*(.*)$")
+
+
+def sgconfig_dirs(text: str) -> list[str]:
+    """The rule and util directories an sgconfig.yml names, in either YAML list form."""
+    dirs: list[str] = []
+    listing = False
+    for line in text.splitlines():
+        m = SGCONFIG_DIRS.match(line)
+        if m:
+            rest = m[2].strip()
+            listing = not rest
+            dirs += [d.strip().strip("'\"") for d in rest.strip("[]").split(",") if d.strip()]
+            continue
+        item = re.match(r"^\s+-\s*(.+?)\s*$", line)
+        if listing and item:
+            dirs.append(item[1].strip("'\""))
+        elif line.strip() and not line[0].isspace():
+            listing = False
+    return [d.rstrip("/") for d in dirs]
+
+
+# Each analyser's own config, by where it lives. pyproject.toml and package.json hold other
+# things too, so only the analysers' sections of them are compared.
+CONFIG_FILES = (
+    "knip.json", "knip.jsonc", ".knip.json", ".knip.jsonc", "knip.ts", "knip.config.ts",
+    ".jscpd.json", "sgconfig.yml", "sgconfig.yaml", ".semgrep.yml", ".semgrep.yaml",
+    ".semgrepignore", ".uncomment.toml",
+)
+CONFIG_SECTIONS = {"pyproject.toml": ("vulture", "sqlfluff"), "package.json": ("knip", "jscpd")}
+
+
+def gate_config(root: Path) -> dict[str, str]:
+    """Every analyser setting at `root` that could hide a finding, keyed by where it is."""
+    tracked = [p for p in git(root, "ls-files", "-z").split("\0") if p and (root / p).is_file()]
+
+    def read(path: str) -> str:
+        return (root / path).read_text(encoding="utf-8", errors="replace")
+
+    config = {p: read(p) for p in tracked if p in CONFIG_FILES or Path(p).name == ".sqlfluff" or p.startswith(".semgrep/")}
+    for sg in ("sgconfig.yml", "sgconfig.yaml"):
+        if sg in config:
+            for d in sgconfig_dirs(config[sg]):
+                config.update({p: read(p) for p in tracked if p.startswith(f"{d}/")})
+    for name, keys in CONFIG_SECTIONS.items():
+        if name not in tracked:
+            continue
+        try:
+            data = tomllib.loads(read(name)).get("tool", {}) if name.endswith(".toml") else json.loads(read(name))
+        except (ValueError, tomllib.TOMLDecodeError):
+            continue
+        config.update({f"{name} ({k})": json.dumps(data[k], sort_keys=True) for k in keys if k in data})
+    return config
+
+
+def config_changes(base: Path, head: Path) -> list[str]:
+    before, after = gate_config(base), gate_config(head)
+    return sorted(k for k in before.keys() | after.keys() if before.get(k) != after.get(k))
 
 
 def issue_problem(repo: str, issue: int) -> str:
@@ -493,18 +588,32 @@ def local_rules(found: dict, head: dict, problems: dict[str, str]) -> list[Rule]
     ]
 
 
-def base_rules(found: dict, head: dict, base: dict, ref: str, minimum: int) -> tuple[list[Rule], str]:
-    """Rules 4-5: the baseline against the one on the base branch, and a note on the reduction."""
-    added = [(fp, e, f"not in the baseline on {ref}") for fp, e in head.items() if fp not in base]
+def base_rules(found: dict, head: dict, base: dict, preexisting: set[str], minimum: int) -> tuple[list[Rule], str]:
+    """Rules 4-5: the baseline against the base's, and a note on the reduction."""
+    added = [fp for fp in head if fp not in base]
+    adopted = [fp for fp in added if fp in preexisting]
+    why = "not in the base's baseline, and not in the base's code"
+    rejected = [(fp, head[fp], why) for fp in added if fp not in preexisting]
     # Dropping an entry only counts when its finding is gone too; otherwise it is a new finding.
     resolved = [fp for fp in base if fp not in head and fp not in found]
     needed = min(minimum, len(base))
-    rules: list[Rule] = [(f"Added to the baseline since {ref}", added)]
+    rules: list[Rule] = [("Added to the baseline: fix them instead", rejected)]
     if len(resolved) < needed:
-        why = f"resolves {len(resolved)} baselined findings; resolve at least {needed}"
-        rules.append((f"Not enough resolved since {ref}", [("", {}, why)]))
-    note = f"{len(resolved)} of the {len(base)} findings baselined on `{ref}` resolved; {needed} required."
+        short = f"resolves {len(resolved)} baselined findings; resolve at least {needed}"
+        rules.append(("Not enough resolved", [("", {}, short)]))
+    note = f"{len(resolved)} of the {len(base)} baselined findings resolved; {needed} required."
+    if adopted:
+        note += f" {len(adopted)} entries added for findings the base's code already has, from a newer tool or rule."
     return rules, note
+
+
+def config_rule(base_dir: Path, root: Path, allowed: bool) -> list[Rule]:
+    """Rule 6: an analyser's config is the same as the base's."""
+    if allowed:
+        return []
+    changed = config_changes(base_dir, root)
+    why = "changed; a reviewer allows it with allow-config-change"
+    return [("Analyser config changed", [("", {"path": p}, why) for p in changed])]
 
 
 def proposal(found: dict, head: dict) -> dict:
@@ -520,32 +629,45 @@ def print_failures(failed: list[Rule]) -> None:
     for heading, rows in failed:
         print(f"✖ {heading}")
         for fp, entry, why in rows:
-            if not entry:
-                print(f"    {why}")
+            if not fp:
+                print("    " + "  ".join(x for x in (entry.get("path", ""), why) if x))
                 continue
             print(f"    {fp}  {describe(entry)}  ({why})")
             annotate("error", entry, f"{heading}: {describe(entry)} [{fp}]")
 
 
+def pull_request_rules(args: argparse.Namespace, root: Path, found: dict, head: dict) -> tuple[list[Rule], list[str]]:
+    """Rules 4-6, against the checkout at --base-dir."""
+    base_dir = Path(args.base_dir)
+    base = read_baseline(base_dir, args.baseline)
+    if base is None:
+        return [], [f"The base has no `{args.baseline}`, so this pull request adopts the check."]
+    preexisting: set[str] = set()
+    if any(fp not in base for fp in head):
+        print("The baseline grew; scanning the base for findings its code already has.")
+        preexisting = {f["fingerprint"] for f in collect(base_dir, args)["findings"]}
+    rules, note = base_rules(found, head, base, preexisting, args.minimum_reduction)
+    return rules + config_rule(base_dir, root, args.allow_config_change), [note]
+
+
 def check(args: argparse.Namespace) -> int:
+    root = toplevel()
     report = json.loads(Path(args.report).read_text(encoding="utf-8"))
     found = {f["fingerprint"]: f for f in report["findings"]}
-    baseline_path = Path(args.baseline)
-    head = load_baseline(baseline_path.read_text(encoding="utf-8"), args.baseline) if baseline_path.is_file() else {}
+    committed = read_baseline(root, args.baseline)
+    head = committed or {}
     repo = os.environ.get("GH_REPO", "")
-    if not repo and (head or args.base):
-        raise Fail("GH_REPO is not set: it names the repository the issues and the base branch are in")
+    if not repo and head:
+        raise Fail("GH_REPO is not set: it names the repository the issues are in")
 
     rules = local_rules(found, head, issue_problems(repo, head) if head else {})
-    notes = []
-    if args.base:
-        base = base_baseline(repo, args.baseline, args.base)
-        if base is None:
-            notes.append(f"`{args.base}` has no `{args.baseline}` yet, so this baseline is the first one.")
-        else:
-            more, note = base_rules(found, head, base, args.base, args.minimum_reduction)
-            rules += more
-            notes.append(note)
+    if committed is None:
+        why = "commit it, empty or with the proposed entries"
+        rules.append(("No baseline file", [("", {"path": args.baseline}, why)]))
+    notes: list[str] = []
+    if args.base_dir:
+        more, notes = pull_request_rules(args, root, found, head)
+        rules += more
     if args.proposal:
         write_json(Path(args.proposal), proposal(found, head))
 
@@ -573,7 +695,9 @@ def summarize(report: dict, baselined: int, failed: list, notes: list[str]) -> N
         lines += ["", f"#### {heading}", "", "| Fingerprint | Finding | Why |", "| --- | --- | --- |"]
         for fp, entry, why in rows[:SUMMARY_ROWS]:
             finding = describe(entry).replace("|", "\\|") if entry else ""
-            lines.append(f"| `{fp}` | {finding} | {why} |" if fp else f"| | | {why} |")
+            if not fp:
+                finding = f"`{entry['path']}`" if entry else ""
+            lines.append(f"| {f'`{fp}`' if fp else ''} | {finding} | {why} |")
         if len(rows) > SUMMARY_ROWS:
             lines.append(f"\n…and {len(rows) - SUMMARY_ROWS} more, in the job log.")
     with open(target, "a", encoding="utf-8") as out:
@@ -585,17 +709,20 @@ def summarize(report: dict, baselined: int, failed: list, notes: list[str]) -> N
 
 def main(argv: list[str]) -> int:
     parser = argparse.ArgumentParser(description=__doc__.split("\n", 1)[0])
+    scanning = argparse.ArgumentParser(add_help=False)
+    scanning.add_argument("--tools", default="", help=f"comma-separated subset of {','.join(TOOLS)}")
+    scanning.add_argument("--semgrep-config", default="")
+    scanning.add_argument("--sqlfluff-dialect", default="ansi")
+    scanning.add_argument("--install", action="store_true", help="install Node dependencies before knip")
     sub = parser.add_subparsers(dest="command", required=True)
-    s = sub.add_parser("scan", help="run the analysers and write the report")
+    s = sub.add_parser("scan", parents=[scanning], help="run the analysers and write the report")
     s.add_argument("--output", required=True)
-    s.add_argument("--tools", default="", help=f"comma-separated subset of {','.join(TOOLS)}")
-    s.add_argument("--semgrep-config", default="")
-    s.add_argument("--sqlfluff-dialect", default="ansi")
-    c = sub.add_parser("check", help="hold the report to the baseline")
+    c = sub.add_parser("check", parents=[scanning], help="hold the report to the baseline")
     c.add_argument("--report", required=True)
-    c.add_argument("--baseline", required=True)
-    c.add_argument("--base", default="", help="branch whose baseline this one may only shrink")
+    c.add_argument("--baseline", required=True, help="path from the repository root")
+    c.add_argument("--base-dir", default="", help="checkout of the commit a pull request merges into")
     c.add_argument("--minimum-reduction", type=int, default=1)
+    c.add_argument("--allow-config-change", action="store_true")
     c.add_argument("--proposal", default="")
     args = parser.parse_args(argv)
     try:

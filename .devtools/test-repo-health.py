@@ -28,25 +28,27 @@ sys.modules["repo_health"] = rh
 spec.loader.exec_module(rh)
 
 GH = """#!/usr/bin/env bash
-# gh api [-H <header>] <endpoint> [--jq <query>]: answers from $GH_FIXTURES.
+# gh api repos/<repo>/issues/<n> --jq <query>: answers from $GH_FIXTURES/issue-<n>.
 for arg in "$@"; do case "${arg}" in repos/*) endpoint="${arg}" ;; esac; done
 [[ -z "${GH_DOWN:-}" ]] || { echo "gh: Bad Gateway (HTTP 502)" >&2; exit 1; }
-case "${endpoint}" in
-    */contents/*) file="${GH_FIXTURES}/base.json" ;;
-    */issues/*) file="${GH_FIXTURES}/issue-${endpoint##*/}" ;;
-esac
+file="${GH_FIXTURES}/issue-${endpoint##*/}"
 [[ -f "${file}" ]] || { echo "gh: Not Found (HTTP 404)" >&2; exit 1; }
 cat "${file}"
 """
 
 
-def git_repo(files: dict[str, str]) -> Path:
-    root = Path(tempfile.mkdtemp())
+def add(root: Path, files: dict[str, str]) -> None:
+    """Writes the files and stages them, so git lists them as tracked."""
     for name, text in files.items():
         (root / name).parent.mkdir(parents=True, exist_ok=True)
         (root / name).write_text(text)
+    subprocess.run(["git", "add", "-A"], cwd=root, check=True)
+
+
+def git_repo(files: dict[str, str]) -> Path:
+    root = Path(tempfile.mkdtemp())
     subprocess.run(["git", "init", "-q"], cwd=root, check=True)
-    subprocess.run(["git", "add", "."], cwd=root, check=True)
+    add(root, files)
     return root
 
 
@@ -55,18 +57,32 @@ class Canned(rh.Repo):
 
     def __init__(self, files: dict[str, str], outputs: dict[str, str], **args):
         root = git_repo(files)
-        defaults = {"sqlfluff_dialect": "ansi", "semgrep_config": ""}
+        defaults = {"sqlfluff_dialect": "ansi", "semgrep_config": "", "install": False}
         super().__init__(root, Path(tempfile.mkdtemp()), argparse.Namespace(**{**defaults, **args}))
         self.outputs = outputs
         self.commands: dict[str, list[str]] = {}
+        self.installs: list[tuple[str, str]] = []
 
-    def run(self, tool, cmd, ok=(0,)):
+    def run(self, tool, cmd, ok=(0,), cwd=None):
         self.commands[tool] = cmd
+        if tool == "install":
+            self.installs.append((cmd[0], Path(cwd).relative_to(self.root).as_posix()))
+            return ""
         if tool == "jscpd":
             (self.work / "jscpd").mkdir()
             (self.work / "jscpd" / "jscpd-report.json").write_text(self.outputs[tool])
             return ""
         return self.outputs[tool]
+
+
+def dup(first, second):
+    """A jscpd clone between two files."""
+    return {
+        "firstFile": {"name": first, "start": 9},
+        "secondFile": {"name": second, "start": 4},
+        "fragment": "def f():\n    return 1",
+        "lines": 6,
+    }
 
 
 def rows(findings):
@@ -94,18 +110,24 @@ class Parsers(unittest.TestCase):
             ],
         )
 
+    def test_knip_installs_beside_each_lockfile_first(self):
+        files = {"package.json": "{}", "pnpm-lock.yaml": "", "tools/package-lock.json": "{}", "tools/package.json": "{}"}
+        repo = Canned(files, {"knip": '{"issues": []}'}, install=True)
+        rh.knip(repo)
+        self.assertEqual(repo.installs, [("corepack", "."), ("npm", "tools")])
+        self.assertIn("--ignore-scripts", repo.commands["install"])
+
+    def test_knip_installs_nothing_unless_asked(self):
+        repo = Canned({"package.json": "{}", "pnpm-lock.yaml": ""}, {"knip": '{"issues": []}'})
+        rh.knip(repo)
+        self.assertEqual(repo.installs, [])
+
     def test_knip_needs_a_package_json(self):
         with self.assertRaises(rh.Skip):
             rh.knip(Canned({"a.py": ""}, {}))
 
     def test_jscpd(self):
         files = {"a.py": "x\n", "b.py": "x\n", "c.py": "x\n"}
-        dup = lambda first, second: {  # noqa: E731
-            "firstFile": {"name": first, "start": 9},
-            "secondFile": {"name": second, "start": 4},
-            "fragment": "def f():\n    return 1",
-            "lines": 6,
-        }
         repo = Canned(files, {})
         report = {"duplicates": [dup(str(repo.root / "b.py"), str(repo.root / "a.py")), dup("b.py", "gone.py")]}
         repo.outputs["jscpd"] = json.dumps(report)
@@ -224,6 +246,8 @@ class Ratchet(unittest.TestCase):
         (self.dir / "bin" / "gh").chmod(0o755)
         self.fixtures = self.dir / "fixtures"
         self.fixtures.mkdir()
+        self.root = git_repo({})
+        self.base = git_repo({})
         self.env = {
             "PATH": f"{self.dir / 'bin'}{os.pathsep}{os.environ['PATH']}",
             "GH_FIXTURES": str(self.fixtures),
@@ -233,6 +257,16 @@ class Ratchet(unittest.TestCase):
             "GH_DOWN": "",
         }
         self.issue(7, "open")
+        self.scanned: list[Path] = []
+        self.base_findings: list[dict] = []
+        real_collect = rh.collect
+
+        def collect(root, args):
+            self.scanned.append(Path(root))
+            return {"version": 1, "tools": {}, "findings": self.base_findings}
+
+        rh.collect = collect
+        self.addCleanup(setattr, rh, "collect", real_collect)
 
     def issue(self, number, state, pull_request=False):
         (self.fixtures / f"issue-{number}").write_text(f"{state}\t{str(pull_request).lower()}\n")
@@ -240,30 +274,41 @@ class Ratchet(unittest.TestCase):
     def files(self, found, baseline=None, base=None):
         (self.dir / "report.json").write_text(json.dumps({"version": 1, "tools": {}, "findings": found}))
         if baseline is not None:
-            (self.dir / "baseline.json").write_text(json.dumps({"version": 1, "findings": baseline}))
+            add(self.root, {"baseline.json": json.dumps({"version": 1, "findings": baseline})})
         if base is not None:
-            (self.fixtures / "base.json").write_text(json.dumps({"version": 1, "findings": base}))
+            add(self.base, {"baseline.json": json.dumps({"version": 1, "findings": base})})
 
     def check(self, *extra, **env):
-        args = ["check", "--report", str(self.dir / "report.json"), "--baseline", str(self.dir / "baseline.json")]
+        args = ["check", "--report", str(self.dir / "report.json"), "--baseline", "baseline.json"]
         out = io.StringIO()
         saved = {k: os.environ.get(k) for k in self.env}
+        cwd = os.getcwd()
         os.environ.update({**self.env, **env})
+        os.chdir(self.root)
         try:
             with contextlib.redirect_stdout(out), contextlib.redirect_stderr(out):
                 code = rh.main([*args, *extra])
         finally:
+            os.chdir(cwd)
             for k, v in saved.items():
                 os.environ.pop(k) if v is None else os.environ.__setitem__(k, v)
         self.output = out.getvalue()
         return code
 
+    def pull_request(self, *extra):
+        return self.check("--base-dir", str(self.base), *extra)
+
     def test_nothing_found_nothing_baselined(self):
+        self.files([], [])
+        self.assertEqual(self.check(), 0, self.output)
+
+    def test_the_baseline_file_has_to_exist(self):
         self.files([])
-        self.assertEqual(self.check(), 0)
+        self.assertEqual(self.check(), 1)
+        self.assertIn("No baseline file", self.output)
 
     def test_a_new_finding_fails(self):
-        self.files([finding("aa")])
+        self.files([finding("aa")], [])
         self.assertEqual(self.check(), 1)
         self.assertIn("New findings", self.output)
 
@@ -296,49 +341,87 @@ class Ratchet(unittest.TestCase):
         self.assertEqual(self.check(GH_DOWN="1"), 2)
 
     def test_nothing_may_be_added_to_the_base_baseline(self):
-        self.files([finding("aa"), finding("bb")], [{"fingerprint": "aa", "issue": 7}, {"fingerprint": "bb", "issue": 7}], [
+        both = [{"fingerprint": "aa", "issue": 7}, {"fingerprint": "bb", "issue": 7}]
+        self.files([finding("aa"), finding("bb")], both, [both[0], {"fingerprint": "cc", "issue": 7}])
+        self.assertEqual(self.pull_request(), 1)
+        self.assertIn("Added to the baseline", self.output)
+        self.assertEqual(self.scanned, [self.base])
+
+    def test_a_finding_the_base_code_already_has_may_be_added(self):
+        # A newer tool or rule found it in code the pull request did not write.
+        both = [{"fingerprint": "aa", "issue": 7}, {"fingerprint": "bb", "issue": 7}]
+        self.base_findings = [finding("bb")]
+        self.files([finding("aa"), finding("bb")], both, [both[0], {"fingerprint": "cc", "issue": 7}])
+        self.assertEqual(self.pull_request(), 0, self.output)
+        self.assertIn("1 entries added for findings the base's code already has", self.output)
+
+    def test_the_base_is_only_scanned_when_the_baseline_grows(self):
+        self.files([finding("aa")], [{"fingerprint": "aa", "issue": 7}], [
             {"fingerprint": "aa", "issue": 7},
-            {"fingerprint": "cc", "issue": 7},
+            {"fingerprint": "bb", "issue": 7},
         ])
-        self.assertEqual(self.check("--base", "main"), 1)
-        self.assertIn("Added to the baseline since main", self.output)
+        self.assertEqual(self.pull_request(), 0, self.output)
+        self.assertEqual(self.scanned, [])
 
     def test_a_pull_request_has_to_resolve_baselined_findings(self):
         base = [{"fingerprint": "aa", "issue": 7}, {"fingerprint": "bb", "issue": 7}]
         self.files([finding("aa"), finding("bb")], base, base)
-        self.assertEqual(self.check("--base", "develop"), 1)
+        self.assertEqual(self.pull_request(), 1)
         self.assertIn("resolves 0 baselined findings; resolve at least 1", self.output)
-        self.assertEqual(self.check("--base", "develop", "--minimum-reduction", "0"), 0)
+        self.assertEqual(self.pull_request("--minimum-reduction", "0"), 0)
 
     def test_resolving_one_is_enough_by_default(self):
         self.files([finding("aa")], [{"fingerprint": "aa", "issue": 7}], [
             {"fingerprint": "aa", "issue": 7},
             {"fingerprint": "bb", "issue": 7},
         ])
-        self.assertEqual(self.check("--base", "main"), 0, self.output)
-        self.assertEqual(self.check("--base", "main", "--minimum-reduction", "2"), 1)
+        self.assertEqual(self.pull_request(), 0, self.output)
+        self.assertEqual(self.pull_request("--minimum-reduction", "2"), 1)
 
     def test_fewer_left_than_the_minimum_means_all_of_them(self):
         self.files([], [], [{"fingerprint": "aa", "issue": 7}])
-        self.assertEqual(self.check("--base", "main", "--minimum-reduction", "5"), 0, self.output)
+        self.assertEqual(self.pull_request("--minimum-reduction", "5"), 0, self.output)
 
     def test_an_empty_base_baseline_asks_for_nothing(self):
         self.files([], [], [])
-        self.assertEqual(self.check("--base", "main"), 0, self.output)
+        self.assertEqual(self.pull_request(), 0, self.output)
 
     def test_deleting_an_entry_without_the_fix_resolves_nothing(self):
         self.files([finding("aa"), finding("bb")], [{"fingerprint": "aa", "issue": 7}], [
             {"fingerprint": "aa", "issue": 7},
             {"fingerprint": "bb", "issue": 7},
         ])
-        self.assertEqual(self.check("--base", "main"), 1)
+        self.assertEqual(self.pull_request(), 1)
         self.assertIn("New findings", self.output)
         self.assertIn("resolves 0 baselined findings", self.output)
 
     def test_the_first_baseline_lands_when_the_base_has_none(self):
         self.files([finding("aa")], [{"fingerprint": "aa", "issue": 7}])
-        self.assertEqual(self.check("--base", "main"), 0, self.output)
-        self.assertIn("this baseline is the first one", self.output)
+        add(self.root, {"knip.json": "{}"})
+        self.assertEqual(self.pull_request(), 0, self.output)
+        self.assertIn("adopts the check", self.output)
+
+    def test_an_analyser_config_may_not_change(self):
+        self.files([], [], [])
+        add(self.base, {"knip.json": "{}", "pyproject.toml": "[tool.vulture]\nmin_confidence = 60\n"})
+        add(self.root, {"knip.json": '{"ignore": ["src/**"]}', "pyproject.toml": "[tool.vulture]\nmin_confidence = 90\n"})
+        self.assertEqual(self.pull_request(), 1)
+        self.assertIn("knip.json", self.output)
+        self.assertIn("pyproject.toml (vulture)", self.output)
+        self.assertEqual(self.pull_request("--allow-config-change"), 0, self.output)
+
+    def test_deleting_a_config_turns_nothing_off_quietly(self):
+        self.files([], [], [])
+        add(self.base, {"sgconfig.yml": "ruleDirs:\n  - rules\n", "rules/no-eval.yml": "id: no-eval\n"})
+        add(self.root, {"sgconfig.yml": "ruleDirs:\n  - rules\n"})
+        self.assertEqual(self.pull_request(), 1)
+        self.assertIn("rules/no-eval.yml", self.output)
+
+    def test_the_rest_of_pyproject_may_change(self):
+        self.files([], [], [])
+        add(self.base, {"pyproject.toml": '[project]\nname = "a"\n'})
+        add(self.root, {"pyproject.toml": '[project]\nname = "b"\n'})
+        self.assertEqual(self.pull_request(), 0, self.output)
 
     def test_the_proposal_is_the_baseline_this_run_would_accept(self):
         self.files([finding("bb", "b.py"), finding("aa")], [{"fingerprint": "aa", "issue": 7}, {"fingerprint": "gone", "issue": 7}])
@@ -348,13 +431,19 @@ class Ratchet(unittest.TestCase):
         self.assertNotIn("line", entries[0])
 
     def test_a_pull_request_sees_each_new_finding_on_its_line(self):
-        self.files([finding("aa")])
+        self.files([finding("aa")], [])
         self.check(GITHUB_ACTIONS="true")
         self.assertIn("::error file=a.py,line=1,title=repo-health::", self.output)
+
+
+class SgconfigDirs(unittest.TestCase):
+    def test_both_list_forms(self):
+        text = "ruleDirs:\n  - rules\n  - 'more/'\nutilDirs: [utils, \"lib\"]\ntestConfigs:\n  - testDir: t\n"
+        self.assertEqual(rh.sgconfig_dirs(text), ["rules", "more", "utils", "lib"])
 
 
 if __name__ == "__main__":
     # Named rather than discovered, so vulture sees them used.
     loader = unittest.defaultTestLoader
-    suite = unittest.TestSuite(loader.loadTestsFromTestCase(case) for case in (Parsers, Fingerprints, Ratchet))
+    suite = unittest.TestSuite(loader.loadTestsFromTestCase(case) for case in (Parsers, Fingerprints, Ratchet, SgconfigDirs))
     sys.exit(not unittest.TextTestRunner().run(suite).wasSuccessful())

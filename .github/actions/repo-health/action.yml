@@ -13,16 +13,14 @@ description: >-
 # from its mise.lock. The caller's mise.toml is never read, and nothing but mise itself is
 # put on its PATH.
 #
+# On a pull request or a merge queue entry, the caller's checkout needs fetch-depth: 2. Its
+# HEAD is the merge commit, so HEAD^1 is exactly what the change lands on: the base the
+# ratchet compares with, also for a stacked pull request, whose merge is built on the layer
+# below it.
+#
 # The rules, the report and the baseline are documented in .devtools/repo-health.py.
 
 inputs:
-  base:
-    description: >-
-      The branch whose baseline a pull request may only shrink: main, or develop where that is
-      where work lands. Empty means the repository's default branch. It is only compared on
-      pull_request and merge_group events.
-    required: false
-    default: ''
   baseline:
     description: The baseline file, relative to the repository root.
     required: false
@@ -33,6 +31,19 @@ inputs:
       0 turns the rule off, for a bot's dependency bump, say.
     required: false
     default: '1'
+  allow-config-change:
+    description: >-
+      true lets a pull request change an analyser's config (knip.json, .jscpd.json, sgconfig.yml
+      and its rules, .semgrep.yml, .uncomment.toml, .sqlfluff, the vulture and sqlfluff sections
+      of pyproject.toml). Wire it to a label only reviewers can set: a config can hide findings.
+    required: false
+    default: 'false'
+  install-dependencies:
+    description: >-
+      Install Node dependencies beside each tracked pnpm or npm lockfile before knip, with
+      lifecycle scripts off. Knip reads binaries and configs through node_modules.
+    required: false
+    default: 'true'
   tools:
     description: Comma-separated subset of the tools to run. Empty runs every one the repository has something for.
     required: false
@@ -57,7 +68,7 @@ inputs:
     required: false
     default: '2026.10.0'
   token:
-    description: "Reads the base branch's baseline and the issues it names: contents: read, issues: read."
+    description: 'Reads the issues the baseline names: issues: read.'
     required: false
     default: ${{ github.token }}
 
@@ -82,6 +93,26 @@ runs:
           echo "data=${RUNNER_TOOL_CACHE:-${RUNNER_TEMP}}/repo-health-mise"
           echo "lock=$(sha256sum "${GITHUB_ACTION_PATH}/mise.lock" | cut -c1-16)"
         } >> "${GITHUB_OUTPUT}"
+
+    - name: Check out the commit this lands on
+      if: ${{ github.event_name == 'pull_request' || github.event_name == 'merge_group' }}
+      id: base
+      shell: bash
+      env:
+        EVENT: ${{ github.event_name }}
+        DIR: ${{ steps.paths.outputs.dir }}/base
+      run: |
+        parents="$(git rev-list --parents -n 1 HEAD | wc -w)"
+        if [ "${EVENT}" = pull_request ] && [ "${parents}" -lt 3 ]; then
+          echo "::error title=repo-health::HEAD is not the pull request's merge commit; check out the default ref"
+          exit 2
+        fi
+        if ! git rev-parse --verify --quiet 'HEAD^1^{commit}' >/dev/null; then
+          echo "::error title=repo-health::HEAD^1 is not in the checkout; check out with fetch-depth: 2"
+          exit 2
+        fi
+        git worktree add --detach "${DIR}" HEAD^1
+        echo "dir=${DIR}" >> "${GITHUB_OUTPUT}"
 
     # Only the mise binary: mise-action would install and cache from the caller's mise files.
     - uses: jdx/mise-action@7a4e45a543138629540c9a1616d08632b893e492 # v5.0.1
@@ -121,13 +152,17 @@ runs:
         TOOLS: ${{ inputs.tools }}
         SEMGREP_CONFIG: ${{ inputs.semgrep-config }}
         SQLFLUFF_DIALECT: ${{ inputs.sqlfluff-dialect }}
+        INSTALL: ${{ inputs.install-dependencies }}
       run: |
         eval "$(mise -C "${GITHUB_ACTION_PATH}" env -s bash)"
-        python3 "${GITHUB_ACTION_PATH}/../../../.devtools/repo-health.py" scan --output "${REPORT}" \
+        flags=()
+        if [ "${INSTALL}" = true ]; then flags+=(--install); fi
+        python3 "${GITHUB_ACTION_PATH}/../../../.devtools/repo-health.py" scan --output "${REPORT}" "${flags[@]}" \
           --tools "${TOOLS}" --semgrep-config "${SEMGREP_CONFIG}" --sqlfluff-dialect "${SQLFLUFF_DIALECT}"
 
-    # A pull request, or a merge queue entry, is compared with the base branch; any other run
-    # only holds the report to the baseline it was committed with.
+    # A pull request, or a merge queue entry, is compared with the commit it lands on; any
+    # other run only holds the report to the baseline it was committed with. The scan options
+    # come again because a baseline that grew has the base scanned the same way.
     - name: Hold the baseline ratchet
       shell: bash
       env:
@@ -137,21 +172,30 @@ runs:
         GH_TOKEN: ${{ inputs.token }}
         GH_REPO: ${{ github.repository }}
         DIR: ${{ steps.paths.outputs.dir }}
+        BASE_DIR: ${{ steps.base.outputs.dir }}
         BASELINE: ${{ inputs.baseline }}
-        BASE: >-
-          ${{ (github.event_name == 'pull_request' || github.event_name == 'merge_group')
-          && (inputs.base || github.event.repository.default_branch) || '' }}
         MINIMUM_REDUCTION: ${{ inputs.minimum-reduction }}
+        ALLOW_CONFIG_CHANGE: ${{ inputs.allow-config-change }}
+        TOOLS: ${{ inputs.tools }}
+        SEMGREP_CONFIG: ${{ inputs.semgrep-config }}
+        SQLFLUFF_DIALECT: ${{ inputs.sqlfluff-dialect }}
+        INSTALL: ${{ inputs.install-dependencies }}
       run: |
         eval "$(mise -C "${GITHUB_ACTION_PATH}" env -s bash)"
-        python3 "${GITHUB_ACTION_PATH}/../../../.devtools/repo-health.py" check \
-          --report "${DIR}/report.json" --baseline "${BASELINE}" --base "${BASE}" \
-          --minimum-reduction "${MINIMUM_REDUCTION}" --proposal "${DIR}/baseline.json"
+        flags=()
+        if [ "${INSTALL}" = true ]; then flags+=(--install); fi
+        if [ "${ALLOW_CONFIG_CHANGE}" = true ]; then flags+=(--allow-config-change); fi
+        python3 "${GITHUB_ACTION_PATH}/../../../.devtools/repo-health.py" check "${flags[@]}" \
+          --report "${DIR}/report.json" --baseline "${BASELINE}" --base-dir "${BASE_DIR}" \
+          --minimum-reduction "${MINIMUM_REDUCTION}" --proposal "${DIR}/baseline.json" \
+          --tools "${TOOLS}" --semgrep-config "${SEMGREP_CONFIG}" --sqlfluff-dialect "${SQLFLUFF_DIALECT}"
 
     # The proposed baseline is what a first baseline, or a cleanup, starts from.
     - if: ${{ !cancelled() }}
       uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
       with:
         name: ${{ inputs.artifact-name }}
-        path: ${{ steps.paths.outputs.dir }}
+        path: |
+          ${{ steps.paths.outputs.dir }}/report.json
+          ${{ steps.paths.outputs.dir }}/baseline.json
         if-no-files-found: ignore
