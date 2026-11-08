@@ -1,0 +1,101 @@
+name: self-changed-paths
+
+# Dogfooding caller for the changed-paths action, against the real compare API on a real pull
+# request. self-lint tests the decision logic offline; this is the one place the whole path runs
+# end to end: the action's token, the compare call, and a gated reusable that has to skip.
+#
+# It is not a required check, so a trigger-level `paths:` filter is fine here: the filter is also
+# what guarantees the pull request touches the files the first job relies on.
+
+on:
+  pull_request:
+    paths:
+      - '.github/actions/changed-paths/**'
+      - '.github/workflows/self-changed-paths.yml'
+      - '.github/workflows/ci-go.yml'
+      - '.github/workflows/ci-java-gradle.yml'
+
+permissions: {}
+
+concurrency:
+  group: self-changed-paths-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  guard:
+    name: Guard answers
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+    steps:
+      - name: A path no pull request touches
+        id: untouched
+        uses: $/.github/actions/changed-paths
+        with:
+          paths: |
+            does-not-exist/**
+
+      # The trigger above only fires when one of these changed, so this always answers true.
+      - name: A path this pull request touches
+        id: touched
+        uses: $/.github/actions/changed-paths
+        with:
+          paths: |
+            .github/actions/changed-paths/**
+            .github/workflows/self-changed-paths.yml
+            .github/workflows/ci-go.yml
+            .github/workflows/ci-java-gradle.yml
+
+      - name: A later exclusion removes an earlier match
+        id: excluded
+        uses: $/.github/actions/changed-paths
+        with:
+          paths: |
+            .github/**
+            !.github/**
+
+      - name: No paths at all
+        id: empty
+        uses: $/.github/actions/changed-paths
+
+      - name: Check the answers
+        env:
+          UNTOUCHED: ${{ steps.untouched.outputs.changed }}
+          TOUCHED: ${{ steps.touched.outputs.changed }}
+          EXCLUDED: ${{ steps.excluded.outputs.changed }}
+          EMPTY: ${{ steps.empty.outputs.changed }}
+        run: |
+          status=0
+          expect() {
+            if [ "$2" != "$3" ]; then
+              echo "::error::${1} answered '${2}', expected '${3}'"
+              status=1
+            fi
+          }
+          expect 'a path no pull request touches' "${UNTOUCHED}" false
+          expect 'a path this pull request touches' "${TOUCHED}" true
+          expect 'a later exclusion' "${EXCLUDED}" false
+          expect 'no paths at all' "${EMPTY}" true
+          exit "${status}"
+
+  # This repo has no go.mod and no Gradle wrapper, so each of these fails in its first real step
+  # unless the gate skips it. A green run is therefore proof the reusable honours `paths`.
+  # `./` rather than `$/` on purpose; self-lint.yml explains why.
+  gated-go:
+    name: Gated ci-go skips
+    permissions:
+      contents: read
+    uses: ./.github/workflows/ci-go.yml
+    with:
+      paths: |
+        does-not-exist/**
+
+  gated-gradle:
+    name: Gated ci-java-gradle skips
+    permissions:
+      contents: read
+    uses: ./.github/workflows/ci-java-gradle.yml
+    with:
+      paths: |
+        does-not-exist/**

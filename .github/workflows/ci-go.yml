@@ -69,6 +69,14 @@ on:
         type: number
         required: false
         default: 20
+      paths:
+        description: >-
+          Newline-separated globs with GitHub `paths:` syntax. When set, a pull request that
+          touches none of them skips this job's steps and still reports success; other events
+          always run. Empty runs every time.
+        type: string
+        required: false
+        default: ''
 
 permissions: {}
 
@@ -92,11 +100,20 @@ jobs:
     env:
       PACKAGES: ${{ inputs.packages }}
     steps:
+      # Gates every later step, so a skipped check still reports success (see changed-paths).
+      - name: Check changed paths
+        id: changes
+        uses: $/.github/actions/changed-paths
+        with:
+          paths: ${{ inputs.paths }}
+
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        if: steps.changes.outputs.changed == 'true'
         with:
           persist-credentials: false
 
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        if: steps.changes.outputs.changed == 'true'
         with:
           go-version-file: ${{ inputs.working-directory }}/${{ inputs.go-version-file }}
           cache-dependency-path: |
@@ -107,6 +124,7 @@ jobs:
       # repo's Makefile. The input is the fallback.
       - name: Resolve the golangci-lint version
         id: lint
+        if: steps.changes.outputs.changed == 'true'
         env:
           VERSION_FILE: ${{ inputs.golangci-lint-version-file }}
           FALLBACK: ${{ inputs.golangci-lint-version }}
@@ -121,11 +139,13 @@ jobs:
           echo "run=go run github.com/golangci/golangci-lint/v2/cmd/golangci-lint@${version}" >> "${GITHUB_OUTPUT}"
 
       - name: Modules are verified and tidy
+        if: steps.changes.outputs.changed == 'true'
         run: |
           go mod verify
           go mod tidy -diff
 
       - name: Format
+        if: steps.changes.outputs.changed == 'true'
         env:
           GOLANGCI_LINT: ${{ steps.lint.outputs.run }}
         run: |
@@ -133,6 +153,7 @@ jobs:
           ${GOLANGCI_LINT} fmt --diff ${PACKAGES}
 
       - name: Lint
+        if: steps.changes.outputs.changed == 'true'
         env:
           GOLANGCI_LINT: ${{ steps.lint.outputs.run }}
         run: |
@@ -140,6 +161,7 @@ jobs:
           ${GOLANGCI_LINT} run ${PACKAGES}
 
       - name: Test
+        if: steps.changes.outputs.changed == 'true'
         env:
           TEST_ARGS: ${{ inputs.test-args }}
         run: |
@@ -148,7 +170,7 @@ jobs:
 
       # Always: a failed run is exactly when the numbers are worth reading.
       - name: Summarise coverage
-        if: always()
+        if: always() && steps.changes.outputs.changed == 'true'
         run: |
           profile="${RUNNER_TEMP}/coverage.out"
           if [ ! -s "${profile}" ]; then
@@ -172,10 +194,11 @@ jobs:
           } >> "${GITHUB_STEP_SUMMARY}"
 
       - name: Vulnerability scan
-        if: inputs.govulncheck-version != ''
+        if: inputs.govulncheck-version != '' && steps.changes.outputs.changed == 'true'
         env:
           GOVULNCHECK_VERSION: ${{ inputs.govulncheck-version }}
         run: go run "golang.org/x/vuln/cmd/govulncheck@${GOVULNCHECK_VERSION}" "${PACKAGES}"
 
       - name: Build
+        if: steps.changes.outputs.changed == 'true'
         run: go build "${PACKAGES}"
