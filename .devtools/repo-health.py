@@ -15,7 +15,7 @@ has what it reads, and is configured the way it always is, by its own file:
     jscpd      any tracked file                (.jscpd.json)
     vulture    *.py                            ([tool.vulture] in pyproject.toml)
     ruff       *.py                            (a fixed rule set; no config, no noqa)
-    lizard     any tracked file it can parse   (CCN 15, 80 lines, 6 parameters)
+    lizard     any tracked file it can parse   (CCN 15, 80 lines, 6 parameters; .lizardignore)
     ast-grep   JS, TS or Python, or            (the rules beside the repo-health action,
                an sgconfig.yml                  and the repository's own)
     sqlfluff   *.sql                           (.sqlfluff, else --sqlfluff-dialect)
@@ -322,11 +322,37 @@ LIZARD_LIMITS = ["--CCN", "15", "--length", "80", "--arguments", "6"]
 LIZARD = re.compile(r"^(?P<path>.+?):(?P<line>\d+): warning: (?P<name>.+) has (?P<metrics>\d+ NLOC, .*)$")
 
 
+LIZARD_IGNORE = ".lizardignore"
+
+
+def glob_regex(pattern: str) -> re.Pattern[str]:
+    """A .lizardignore line as a regex over a git path. `*` and `?` stop at a slash and `**` does
+    not; a pattern with no slash in it matches a name at any depth, and a trailing slash a folder."""
+    folder = pattern.endswith("/")
+    anchored = "/" in pattern.rstrip("/")
+    body = ""
+    parts = re.split(r"(\*\*/|\*\*|\*|\?)", pattern.strip("/"))
+    for part in parts:
+        body += {"**/": "(?:.*/)?", "**": ".*", "*": "[^/]*", "?": "[^/]"}.get(part) or re.escape(part)
+    return re.compile(("" if anchored else "(?:.*/)?") + body + ("/.*" if folder else "(?:/.*)?"), re.DOTALL)
+
+
+def lizard_ignored(repo: Repo) -> list[re.Pattern[str]]:
+    """What the repository leaves out of lizard, for code it vendors and does not own."""
+    if not repo.has(LIZARD_IGNORE):
+        return []
+    text = (repo.root / LIZARD_IGNORE).read_text(encoding="utf-8", errors="replace")
+    lines = (line.strip() for line in text.splitlines())
+    return [glob_regex(line.removeprefix("/")) for line in lines if line and not line.startswith("#")]
+
+
 def lizard(repo: Repo) -> list[Finding]:
-    if not repo.tracked:
-        raise Skip("no tracked files")
+    ignored = lizard_ignored(repo)
+    files = [p for p in repo.tracked if not any(rx.fullmatch(p) for rx in ignored)]
+    if not files:
+        raise Skip("no tracked files" if not repo.tracked else f"every tracked file is in {LIZARD_IGNORE}")
     # 1 means a function is over a threshold.
-    cmd = ["lizard", "--warnings_only", *LIZARD_LIMITS, "--input_file", repo.listfile("lizard", repo.tracked)]
+    cmd = ["lizard", "--warnings_only", *LIZARD_LIMITS, "--input_file", repo.listfile("lizard", files)]
     out = repo.run("lizard", cmd, ok=(0, 1))
     found = []
     for raw in out.splitlines():
@@ -553,7 +579,7 @@ def sgconfig_dirs(text: str) -> list[str]:
 CONFIG_FILES = (
     "knip.json", "knip.jsonc", ".knip.json", ".knip.jsonc", "knip.ts", "knip.config.ts",
     ".jscpd.json", "sgconfig.yml", "sgconfig.yaml", ".semgrep.yml", ".semgrep.yaml",
-    ".semgrepignore", ".uncomment.toml",
+    ".semgrepignore", ".uncomment.toml", ".lizardignore",
 )
 CONFIG_SECTIONS = {"pyproject.toml": ("vulture", "sqlfluff"), "package.json": ("knip", "jscpd")}
 

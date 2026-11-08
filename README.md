@@ -390,19 +390,27 @@ A tool runs when the repository has what it reads, and is configured by its own 
 | [jscpd](https://github.com/kucherenko/jscpd)        | any file                         | `.jscpd.json`; without one, lockfiles are skipped  |
 | [vulture](https://github.com/jendrikseipp/vulture)  | `*.py`                           | `[tool.vulture]` in `pyproject.toml`               |
 | [ruff](https://docs.astral.sh/ruff/)                | `*.py`                           | nothing: a fixed rule set, and `# noqa` is ignored |
-| [lizard](https://github.com/terryyin/lizard)        | any file it parses               | nothing: CCN 15, 80 lines, 6 parameters            |
+| [lizard](https://github.com/terryyin/lizard)        | any file it parses               | `.lizardignore` for files; the limits are fixed    |
 | [ast-grep](https://ast-grep.github.io/)             | JS, TS or Python; `sgconfig.yml` | the bundled rules, and the ones it points at       |
 | [sqlfluff](https://sqlfluff.com/)                   | `*.sql`                          | `.sqlfluff`, else the `sqlfluff-dialect` input     |
 | [semgrep](https://semgrep.dev/)                     | `.semgrep.yml`, `.semgrep/`      | those rules, or the `semgrep-config` input         |
 | [uncomment](https://github.com/Goldziher/uncomment) | `.uncomment.toml`                | the same file                                      |
 
-ruff, lizard and the bundled ast-grep rules are the floor every repository is held to, so a
-repository's config does not reach them. ruff runs security (`S`), likely bugs (`B`), blind and
-bare excepts (`BLE`, `E722`), naive datetimes (`DTZ`), blocking calls in async code (`ASYNC`),
-logging misuse (`LOG`), pylint warnings (`PLW`) and needless code (`PIE`), leaving out `S603`
-and `S607`, which flag every `subprocess` call. The [bundled rules](.github/actions/repo-health/rules.yml)
-make a suppression comment (`eslint-disable`, `@ts-ignore`, `# noqa`, `# type: ignore`, …) a
-finding of its own, since it hides one from the analyser that made it.
+ruff, lizard's limits (CCN 15, 80 lines, 6 parameters) and the bundled ast-grep rules are the
+floor every repository is held to, so a repository's config does not reach them. ruff runs
+security (`S`), likely bugs (`B`), blind and bare excepts (`BLE`, `E722`), naive datetimes
+(`DTZ`), blocking calls in async code (`ASYNC`), logging misuse (`LOG`), pylint warnings (`PLW`)
+and needless code (`PIE`), leaving out `S603` and `S607`, which flag every `subprocess` call. The
+[bundled rules](.github/actions/repo-health/rules.yml) make a suppression comment
+(`eslint-disable`, `@ts-ignore`, `# noqa`, `# type: ignore`, …) a finding of its own, since it
+hides one from the analyser that made it.
+
+lizard has one repository setting: `.lizardignore`, for code the repository vendors and does not
+own, such as components copied from a registry and regenerated from it. One glob per line, `#`
+starts a comment. `*` and `?` stop at a slash and `**` does not. A pattern with no slash matches a
+name at any depth (`*.gen.ts`), one with a slash is anchored at the repository root
+(`apps/admin/src/components/ui/**`), and a trailing slash matches a folder. The other analysers
+still read those files. The file is analyser config, so changing it needs `allow-config-change`.
 
 A finding is an error or a warning. Errors are held to the baseline. Warnings are in the report
 and the summary, and annotated on the files a pull request changes, but never fail it and never
@@ -459,7 +467,7 @@ into `develop` that is `develop`; for a stacked one, the layer below. It fails w
   all of them when fewer are left. Pass `0` for pull requests that cannot resolve anything,
   such as a bot's bump;
 - an analyser's config changed: `knip.json`, `.jscpd.json`, `sgconfig.yml` and the rules it
-  names, `.semgrep.yml` or `.semgrep/`, `.uncomment.toml`, a `.sqlfluff`, or the vulture,
+  names, `.semgrep.yml` or `.semgrep/`, `.uncomment.toml`, `.lizardignore`, a `.sqlfluff`, or the vulture,
   sqlfluff, knip and jscpd sections of `pyproject.toml` and `package.json`. A config can hide
   findings, and deleting one turns its tool off. `allow-config-change` lets a reviewed change
   through: wire it to a label only reviewers can set.
