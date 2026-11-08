@@ -20,6 +20,7 @@ everywhere at once.
 | `.github/workflows/ci-gitleaks.yml`       | Secret scan of what a pull request adds                                            |
 | `.github/workflows/ci-template-drift.yml` | Compares a repo with the project template and tracks the difference in one issue   |
 | `.github/workflows/ci-tools-outdated.yml` | Tracks the tools pinned in `mise.toml` that have a newer release in one issue      |
+| `.github/workflows/ci-repo-health.yml`    | Dead code, duplication, complexity, SAST and SQL lint, held to a baseline ratchet  |
 | `.github/workflows/release-please.yml`    | Grooms a release pull request from Conventional Commits, then tags and releases    |
 | `.github/workflows/promote-release.yml`   | Opens the `release/v<version>` pull request from `develop` into `main`             |
 | `.github/workflows/semantic-release.yml`  | Tags and releases `main` straight from Conventional Commits                        |
@@ -49,6 +50,7 @@ cross-repo; see [AGENTS.md](AGENTS.md).
 | `.github/actions/setup-java-gradle` | Temurin JDK + Gradle with branch-aware caching               |
 | `.github/actions/pr-checks`         | The PR title, branch, size and commit checks, for direct use |
 | `.github/actions/issue-title`       | The issue title check, for direct use                        |
+| `.github/actions/repo-health`       | The repo health check, for direct use after your own setup   |
 | `.github/actions/build-summary`     | JUnit + JaCoCo numbers into the job summary                  |
 
 ## Git hooks
@@ -372,6 +374,124 @@ Neither is run against this repository: it has no `develop`, and `release.yml` h
 semantic-release with the floating `v1` tag. Test a change from a consumer's wrapper pinned to your
 branch SHA, with `dry-run: true` for `semantic-release.yml`.
 
+## Repo health
+
+[`ci-repo-health.yml`](.github/workflows/ci-repo-health.yml) runs a set of analysers over a
+repository's git-tracked files, writes every finding into one JSON report in one shape, and holds
+that report to a baseline. The same commit gives the same report: each tool is pinned, with its
+dependencies, in [the action's own `mise.toml`](.github/actions/repo-health/mise.toml) and
+`mise.lock`, apart from the caller's.
+
+A tool runs when the repository has what it reads, and is configured by its own file:
+
+| Tool                                                | Runs when the repo has      | Configured by                                     |
+| --------------------------------------------------- | --------------------------- | ------------------------------------------------- |
+| [knip](https://knip.dev/)                           | `package.json`              | `knip.json`, `knip.jsonc`, …                      |
+| [jscpd](https://github.com/kucherenko/jscpd)        | any file                    | `.jscpd.json`; without one, lockfiles are skipped |
+| [vulture](https://github.com/jendrikseipp/vulture)  | `*.py`                      | `[tool.vulture]` in `pyproject.toml`              |
+| [lizard](https://github.com/terryyin/lizard)        | any file it parses          | its default thresholds (CCN 15)                   |
+| [ast-grep](https://ast-grep.github.io/)             | `sgconfig.yml`              | the rules it points at                            |
+| [sqlfluff](https://sqlfluff.com/)                   | `*.sql`                     | `.sqlfluff`, else the `sqlfluff-dialect` input    |
+| [semgrep](https://semgrep.dev/)                     | `.semgrep.yml`, `.semgrep/` | those rules, or the `semgrep-config` input        |
+| [uncomment](https://github.com/Goldziher/uncomment) | `.uncomment.toml`           | the same file                                     |
+
+semgrep and uncomment wait for a config on purpose. semgrep's registry rulesets change on
+semgrep's schedule, so `p/default` would fail a pull request for a rule published after it was
+opened; commit the rules you hold the repository to, or pass a registry ruleset knowing that.
+uncomment would otherwise report every explanatory comment in a repository.
+
+Each finding has a fingerprint: a hash of the tool, the rule, the path and what was found (a
+symbol's name, or the flagged line with its whitespace collapsed). Moving code keeps it; renaming
+the file does not.
+
+### The baseline ratchet
+
+`.repo-health/baseline.json` lists the findings a repository still carries:
+
+```json
+{
+  "version": 1,
+  "findings": [
+    {
+      "fingerprint": "a03607f31f6f3e76",
+      "issue": 42,
+      "tool": "vulture",
+      "rule": "unused-function",
+      "path": "src/report.py",
+      "message": "unused function 'compute'"
+    }
+  ]
+}
+```
+
+Only `fingerprint` and `issue` are read; the rest is for the reviewer. Commit the file even when
+it is empty: its presence arms the pull request rules. The check fails when:
+
+- a finding is not in the baseline: fix it;
+- a baseline entry's finding is gone: delete the entry, as part of the fix;
+- an entry's `issue` is not an open issue of the repository;
+- the baseline file is missing.
+
+On a pull request it is also compared with the commit the pull request lands on: `HEAD^1` of
+the merge commit GitHub checks out, so the checkout needs `fetch-depth: 2`. For a pull request
+into `develop` that is `develop`; for a stacked one, the layer below. It fails when:
+
+- an entry was added, unless the base's own code already has that finding. A newer tool or
+  rule, arriving at `@v1`, can find something in code nobody touched; that entry may join the
+  baseline, with its issue, while a finding the pull request wrote never can. The base is only
+  scanned when the baseline grows;
+- fewer than `minimum-reduction` (default 1) of the base's entries were resolved, or fewer than
+  all of them when fewer are left. Pass `0` for pull requests that cannot resolve anything,
+  such as a bot's bump;
+- an analyser's config changed: `knip.json`, `.jscpd.json`, `sgconfig.yml` and the rules it
+  names, `.semgrep.yml` or `.semgrep/`, `.uncomment.toml`, a `.sqlfluff`, or the vulture,
+  sqlfluff, knip and jscpd sections of `pyproject.toml` and `package.json`. A config can hide
+  findings, and deleting one turns its tool off. `allow-config-change` lets a reviewed change
+  through: wire it to a label only reviewers can set.
+
+The caller's workflow file is config too, through `tools` and `minimum-reduction`, and nothing
+here can stop a pull request editing it. Without an organisation-required workflow, CODEOWNERS
+on `.github/workflows/` is the guard.
+
+Before knip, the action installs Node dependencies beside each tracked `pnpm-lock.yaml` or
+`package-lock.json`, with lifecycle scripts off. knip ties a binary a workflow runs to its
+package, and loads configs that import dependencies, through `node_modules`, so without them it
+reports what a developer's checkout does not.
+
+To adopt it, open one issue for the existing findings, let the check fail once, and download the
+`repo-health` artifact: its `baseline.json` is the baseline that run would accept, with
+`"issue": null` on every new entry. Fill in the issue, commit it as `.repo-health/baseline.json`
+with any analyser config, and the base having no baseline yet lets this first one land.
+
+```yaml
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, labeled, unlabeled]
+
+jobs:
+  health:
+    permissions:
+      contents: read
+      issues: read
+    uses: studiobimo/.github/.github/workflows/ci-repo-health.yml@v1
+    with:
+      allow-config-change: ${{ contains(github.event.pull_request.labels.*.name, 'repo-health-config-change') }}
+      minimum-reduction: ${{ github.actor != 'dependabot[bot]' && 1 || 0 }}
+```
+
+To set up more than Node dependencies first, or to grant the token yourself, call the action
+from your own job:
+
+```yaml
+steps:
+  - uses: actions/checkout@<sha> # v7.0.1
+    with:
+      fetch-depth: 2
+      persist-credentials: false
+  - run: uv sync --frozen
+  - uses: studiobimo/.github/.github/actions/repo-health@<sha> # v1.x.y
+```
+
 ## Workflow templates
 
 `workflow-templates/` holds starters offered in the "New workflow" UI of other studiobimo
@@ -396,6 +516,7 @@ npm ci --prefix .github/actions/pr-checks --ignore-scripts   # the commitlint ci
 bash .devtools/test-hooks.sh    # the check scripts behind ci-pr and the git hooks
 bash .devtools/test-repo-settings.sh   # repo-settings.sh, against a stand-in for gh
 bash .devtools/test-issue-title.sh     # issue-title.sh, against a stand-in for gh
+python3 .devtools/test-repo-health.py  # repo-health.py, against canned tool output and a stand-in for gh
 ```
 
 [mise](https://mise.jdx.dev/getting-started.html) is the one thing to install by hand. It pins
@@ -420,6 +541,16 @@ git add mise.toml mise.lock .mise/locks
 
 `.mise/locks/` holds the dependency graph of each npm tool, so it is committed with the other
 two. Leave a release a week before taking it, as Dependabot's cooldown does for everything else.
+
+The repo-health tools are pinned apart, in `.github/actions/repo-health/mise.toml`, and
+`self-tools-outdated` does not look there. Bump them the same way from that directory, with a
+ceiling so mise leaves the root `mise.toml` out:
+
+```sh
+cd .github/actions/repo-health
+MISE_CEILING_PATHS="$(cd .. && pwd)" mise lock
+git add mise.toml mise.lock .mise/locks
+```
 
 pnpm is only here for semantic-release, which `release.yml` runs.
 

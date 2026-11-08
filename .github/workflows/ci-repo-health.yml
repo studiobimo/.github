@@ -1,0 +1,125 @@
+name: ci-repo-health
+
+# Reusable: runs knip, jscpd, vulture, lizard, ast-grep, sqlfluff, semgrep and uncomment over
+# the git-tracked files, writes every finding into one fingerprinted JSON report, and holds it
+# to a baseline ratchet:
+#
+#   - no finding that is not in the baseline;
+#   - no baseline entry whose finding is gone (deleting it is part of the fix);
+#   - every baseline entry tracked by an open issue;
+#   - on a pull request, compared with the commit it lands on: nothing added to the
+#     baseline but findings that code already has, at least minimum-reduction entries
+#     resolved, and no analyser config changed unless allow-config-change.
+#
+# The check lives in .github/actions/repo-health, referenced with `$/` so it always matches
+# the version the caller pinned. Call that action from your own job instead to set up more
+# than Node dependencies first, or to grant the token yourself. The rules and file formats
+# are documented in .devtools/repo-health.py.
+#
+# A tool runs when the repository has what it reads, and takes its own config file: see the
+# README. The baseline is .repo-health/baseline.json, committed even when empty. Every run
+# uploads the report and the baseline it would accept, as the repo-health artifact: a first
+# baseline starts from it.
+#
+# The pull request's code is only ever analysed, never executed: dependencies install with
+# lifecycle scripts off, and the job reads no secret.
+#
+#   on:
+#     pull_request:
+#       # labeled and unlabeled, so adding the override label runs the check again.
+#       types: [opened, synchronize, reopened, labeled, unlabeled]
+#
+#   jobs:
+#     health:
+#       permissions:
+#         contents: read
+#         issues: read
+#       uses: studiobimo/.github/.github/workflows/ci-repo-health.yml@v1
+#       with:
+#         # A label only reviewers can set: a config change can hide findings.
+#         allow-config-change: ${{ contains(github.event.pull_request.labels.*.name, 'repo-health-config-change') }}
+#         # A bot's dependency bump resolves nothing.
+#         minimum-reduction: ${{ github.actor != 'dependabot[bot]' && 1 || 0 }}
+
+on:
+  workflow_call:
+    inputs:
+      baseline:
+        description: The baseline file, relative to the repository root.
+        type: string
+        required: false
+        default: .repo-health/baseline.json
+      minimum-reduction:
+        description: Baselined findings a pull request has to resolve, or every one when fewer are left. 0 turns the rule off.
+        type: number
+        required: false
+        default: 1
+      allow-config-change:
+        description: Lets a pull request change an analyser's config. Wire it to a label only reviewers can set.
+        type: boolean
+        required: false
+        default: false
+      install-dependencies:
+        description: Install Node dependencies beside each pnpm or npm lockfile before knip, with lifecycle scripts off.
+        type: boolean
+        required: false
+        default: true
+      tools:
+        description: Comma-separated subset of the tools to run. Empty runs every one the repository has something for.
+        type: string
+        required: false
+        default: ''
+      semgrep-config:
+        description: >-
+          semgrep's --config. Empty uses the repository's .semgrep.yml or .semgrep/. A registry
+          ruleset (p/default) changes on semgrep's schedule, so a run can fail on a new rule.
+        type: string
+        required: false
+        default: ''
+      sqlfluff-dialect:
+        description: sqlfluff's dialect where the repository has no .sqlfluff.
+        type: string
+        required: false
+        default: ansi
+      timeout-minutes:
+        description: Job timeout. The tools are downloaded on a cold cache.
+        type: number
+        required: false
+        default: 20
+
+permissions: {}
+
+jobs:
+  health:
+    # A ruleset requiring this check names it `<caller's job> / Repo health`.
+    name: Repo health
+    runs-on: ubuntu-latest
+    timeout-minutes: ${{ inputs.timeout-minutes }}
+    permissions:
+      contents: read
+      # Whether each baselined finding's issue is open.
+      issues: read
+    # Pushing again to a pull request supersedes the run in flight, so it is cancelled rather
+    # than billed to the end. Only pull requests cancel: a push to the default branch, a
+    # merge group and a schedule always finish. `github.workflow` is the caller's name, and
+    # the library suffix keeps this group distinct from any the caller declares itself.
+    concurrency:
+      group: ci-repo-health-${{ github.workflow }}-${{ github.ref }}
+      cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+    steps:
+      # The merge commit and its first parent: the commit the pull request lands on.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 2
+          persist-credentials: false
+
+      - uses: $/.github/actions/repo-health
+        with:
+          baseline: ${{ inputs.baseline }}
+          minimum-reduction: ${{ inputs.minimum-reduction }}
+          allow-config-change: ${{ inputs.allow-config-change }}
+          install-dependencies: ${{ inputs.install-dependencies }}
+          tools: ${{ inputs.tools }}
+          semgrep-config: ${{ inputs.semgrep-config }}
+          sqlfluff-dialect: ${{ inputs.sqlfluff-dialect }}
+          token: ${{ github.token }}
