@@ -14,8 +14,10 @@ has what it reads, and is configured the way it always is, by its own file:
     knip       a package.json                  (knip.json and friends)
     jscpd      any tracked file                (.jscpd.json)
     vulture    *.py                            ([tool.vulture] in pyproject.toml)
-    lizard     any tracked file it can parse   (default thresholds)
-    ast-grep   sgconfig.yml                    (its rule directories)
+    ruff       *.py                            (a fixed rule set; no config, no noqa)
+    lizard     any tracked file it can parse   (CCN 15, 80 lines, 6 parameters)
+    ast-grep   JS, TS or Python, or            (the rules beside the repo-health action,
+               an sgconfig.yml                  and the repository's own)
     sqlfluff   *.sql                           (.sqlfluff, else --sqlfluff-dialect)
     semgrep    .semgrep.yml or .semgrep/       (or --semgrep-config)
     uncomment  .uncomment.toml                 (the same file)
@@ -23,6 +25,13 @@ has what it reads, and is configured the way it always is, by its own file:
 --install runs `pnpm install --frozen-lockfile` or `npm ci` beside each tracked lockfile
 before knip, with lifecycle scripts off: knip ties a binary a script runs to its package, and
 loads configs that import dependencies, through node_modules.
+
+ruff and the bundled ast-grep rules ignore the repository's config on purpose: they are the
+floor every repository is held to, and a `# noqa` or `eslint-disable` is itself a finding.
+
+A finding is an error or a warning. Warnings, the bundled magic-number and JSX-text rules and
+whatever a repository's own config demotes, are in the report and on the lines a pull request
+changes, but are not held to the baseline: they never fail the check.
 
 Every finding gets a fingerprint that survives line moves: a hash of the tool, the rule, the
 path and an anchor that is the thing found (a symbol name, or the flagged source line with its
@@ -67,7 +76,11 @@ from dataclasses import dataclass
 from pathlib import Path
 
 REPORT_VERSION = 1
-TOOLS = ("knip", "jscpd", "vulture", "lizard", "ast-grep", "sqlfluff", "semgrep", "uncomment")
+TOOLS = ("knip", "jscpd", "vulture", "ruff", "lizard", "ast-grep", "sqlfluff", "semgrep", "uncomment")
+RULES = Path(__file__).resolve().parent.parent / ".github" / "actions" / "repo-health" / "rules.yml"
+# Test code may assert, hardcode a fake secret and use a plain random, and its numbers are data.
+TEST_FILE = re.compile(r"(^|/)(tests?|__tests__|spec)/|(^|/)test_[^/]*\.py$|_test\.py$|\.(test|spec)\.[cm]?[jt]sx?$")
+TEST_EXEMPT = {"S101", "S105", "S106", "S107", "S311", "repo-health-magic-number"}
 SUMMARY_ROWS = 50
 
 
@@ -87,6 +100,7 @@ class Finding:
     line: int
     message: str
     anchor: str
+    severity: str = "error"
     fingerprint: str = ""
 
     def as_json(self) -> dict:
@@ -97,6 +111,7 @@ class Finding:
             "path": self.path,
             "line": self.line,
             "message": self.message,
+            "severity": self.severity,
         }
 
 
@@ -216,17 +231,22 @@ def knip(repo: Repo) -> list[Finding]:
         for kind, items in entry.items():
             if kind == "file":
                 continue
-            # Most kinds are a list of {name, line}; enum and namespace members can come
-            # grouped under their parent, and a duplicate is a list of the names it joins.
-            if isinstance(items, dict):
-                items = [{**i, "name": f"{parent}.{i['name']}"} for parent, group in items.items() for i in group]
-            for item in items or []:
-                if isinstance(item, list):
-                    item = {"name": " = ".join(sorted(i["name"] for i in item)), "line": item[0].get("line")}
-                name = item["name"]
-                message = f"{KNIP.get(kind, kind)}: {name}"
-                found.append(Finding("knip", kind, path, item.get("line") or 1, message, name))
+            for item in knip_items(items):
+                message = f"{KNIP.get(kind, kind)}: {item['name']}"
+                found.append(Finding("knip", kind, path, item.get("line") or 1, message, item["name"]))
     return found
+
+
+def knip_items(items) -> list[dict]:
+    """Most kinds are a list of {name, line}; enum and namespace members can come grouped under
+    their parent, and a duplicate is a list of the names it joins."""
+    if isinstance(items, dict):
+        return [{**i, "name": f"{parent}.{i['name']}"} for parent, group in items.items() for i in group]
+    return [knip_duplicate(i) if isinstance(i, list) else i for i in items or []]
+
+
+def knip_duplicate(group: list[dict]) -> dict:
+    return {"name": " = ".join(sorted(i["name"] for i in group)), "line": group[0].get("line")}
 
 
 JSCPD_IGNORE = "**/*lock.json,**/*lock.yaml,**/*.lock,**/.mise/locks/**"
@@ -278,6 +298,27 @@ def vulture(repo: Repo) -> list[Finding]:
     return found
 
 
+# Security, likely bugs, bare and blind excepts, naive datetimes, blocking calls in async code,
+# logging misuse, pylint's warnings and needless code.
+RUFF_RULES = "S,B,BLE,E722,DTZ,ASYNC,LOG,PLW,PIE"
+# Every subprocess call, a fixed argument list like ["git", ...] included.
+RUFF_IGNORED = "S603,S607"
+
+
+def ruff(repo: Repo) -> list[Finding]:
+    files = repo.matching(".py", ".pyi")
+    if not files:
+        raise Skip("no Python files")
+    cmd = ["ruff", "check", "--isolated", "--ignore-noqa", "--select", RUFF_RULES, "--ignore", RUFF_IGNORED]
+    out = repo.run("ruff", [*cmd, "--output-format", "json", "--exit-zero", *files])
+    found = []
+    for d in json.loads(out):
+        path, line = repo.rel(d["filename"]), d["location"]["row"]
+        found.append(Finding("ruff", d["code"], path, line, d["message"], repo.line(path, line)))
+    return found
+
+
+LIZARD_LIMITS = ["--CCN", "15", "--length", "80", "--arguments", "6"]
 LIZARD = re.compile(r"^(?P<path>.+?):(?P<line>\d+): warning: (?P<name>.+) has (?P<metrics>\d+ NLOC, .*)$")
 
 
@@ -285,7 +326,8 @@ def lizard(repo: Repo) -> list[Finding]:
     if not repo.tracked:
         raise Skip("no tracked files")
     # 1 means a function is over a threshold.
-    out = repo.run("lizard", ["lizard", "--warnings_only", "--input_file", repo.listfile("lizard", repo.tracked)], ok=(0, 1))
+    cmd = ["lizard", "--warnings_only", *LIZARD_LIMITS, "--input_file", repo.listfile("lizard", repo.tracked)]
+    out = repo.run("lizard", cmd, ok=(0, 1))
     found = []
     for raw in out.splitlines():
         m = LIZARD.match(raw)
@@ -295,18 +337,29 @@ def lizard(repo: Repo) -> list[Finding]:
     return found
 
 
-def ast_grep(repo: Repo) -> list[Finding]:
-    if not repo.has("sgconfig.yml", "sgconfig.yaml"):
-        raise Skip("no sgconfig.yml")
-    # 1 means a rule of severity error matched; anything else is ast-grep failing.
-    out = repo.run("ast-grep", ["ast-grep", "scan", "--json=stream"], ok=(0, 1))
+AST_GREP_FILES = (".ts", ".mts", ".cts", ".tsx", ".js", ".mjs", ".cjs", ".jsx", ".py")
+
+
+def ast_grep_findings(repo: Repo, out: str) -> list[Finding]:
     found = []
     for raw in out.splitlines():
         if raw.strip():
             m = json.loads(raw)
             line = m["range"]["start"]["line"] + 1
             anchor = " ".join(m["text"].split())
-            found.append(Finding("ast-grep", m["ruleId"], repo.rel(m["file"]), line, m["message"], anchor))
+            severity = "error" if m["severity"] == "error" else "warning"
+            found.append(Finding("ast-grep", m["ruleId"], repo.rel(m["file"]), line, m["message"], anchor, severity))
+    return found
+
+
+def ast_grep(repo: Repo) -> list[Finding]:
+    own = repo.has("sgconfig.yml", "sgconfig.yaml")
+    if not own and not repo.matching(*AST_GREP_FILES):
+        raise Skip("no sgconfig.yml, and no JavaScript, TypeScript or Python")
+    # 1 means a rule of severity error matched; anything else is ast-grep failing.
+    found = ast_grep_findings(repo, repo.run("ast-grep", ["ast-grep", "scan", "--rule", str(RULES), "--json=stream", "."], ok=(0, 1)))
+    if own:
+        found += ast_grep_findings(repo, repo.run("ast-grep", ["ast-grep", "scan", "--json=stream"], ok=(0, 1)))
     return found
 
 
@@ -325,10 +378,9 @@ def sqlfluff(repo: Repo) -> list[Finding]:
         path = repo.rel(result["filepath"])
         for v in result["violations"]:
             # A rule the repository's config demotes to a warning does not fail sqlfluff either.
-            if v.get("warning"):
-                continue
+            severity = "warning" if v.get("warning") else "error"
             line = v["start_line_no"]
-            found.append(Finding("sqlfluff", v["code"], path, line, v["description"], repo.line(path, line)))
+            found.append(Finding("sqlfluff", v["code"], path, line, v["description"], repo.line(path, line), severity))
     return found
 
 
@@ -369,6 +421,7 @@ RUNNERS = {
     "knip": knip,
     "jscpd": jscpd,
     "vulture": vulture,
+    "ruff": ruff,
     "lizard": lizard,
     "ast-grep": ast_grep,
     "sqlfluff": sqlfluff,
@@ -389,6 +442,10 @@ def fingerprint(findings: list[Finding]) -> list[Finding]:
     return sorted(findings, key=lambda f: (f.path, f.line, f.tool, f.rule, f.fingerprint))
 
 
+def exempt(f: Finding) -> bool:
+    return f.rule in TEST_EXEMPT and bool(TEST_FILE.search(f.path))
+
+
 def collect(root: Path, args: argparse.Namespace) -> dict:
     """Every analyser's findings in the repository at `root`, as a report."""
     selected = set(args.tools.split(",")) if args.tools else set(TOOLS)
@@ -404,7 +461,7 @@ def collect(root: Path, args: argparse.Namespace) -> dict:
                 tools[name] = {"status": "disabled"}
                 continue
             try:
-                found = [f for f in RUNNERS[name](repo) if f.path in repo.tracked_set]
+                found = [f for f in RUNNERS[name](repo) if f.path in repo.tracked_set and not exempt(f)]
             except Skip as skip:
                 tools[name] = {"status": "skipped", "reason": str(skip)}
                 print(f"- {name}: skipped, {skip}")
@@ -658,20 +715,38 @@ def pull_request_rules(args: argparse.Namespace, root: Path, found: dict, head: 
     return rules + config_rule(base_dir, root, args.allow_config_change), [note]
 
 
-def check(args: argparse.Namespace) -> int:
-    root = toplevel()
-    report = json.loads(Path(args.report).read_text(encoding="utf-8"))
-    found = {f["fingerprint"]: f for f in report["findings"]}
+def changed_files(base_dir: Path, root: Path) -> set[str]:
+    base = git(base_dir, "rev-parse", "HEAD").strip()
+    return set(git(root, "diff", "--name-only", "-z", base, "HEAD").split("\0")) - {""}
+
+
+def annotate_warnings(warnings: list[dict], changed: set[str]) -> None:
+    """Only on the files a pull request changed: elsewhere they are not its to fix."""
+    for w in warnings:
+        if w["path"] in changed:
+            annotate("warning", w, describe(w))
+
+
+def baseline_rules(args: argparse.Namespace, root: Path, found: dict) -> tuple[list[Rule], dict]:
+    """Rules 1-3, and the baseline they were held to."""
     committed = read_baseline(root, args.baseline)
     head = committed or {}
     repo = os.environ.get("GH_REPO", "")
     if not repo and head:
         raise Fail("GH_REPO is not set: it names the repository the issues are in")
-
     rules = local_rules(found, head, issue_problems(repo, head) if head else {})
     if committed is None:
         why = "commit it, empty or with the proposed entries"
         rules.append(("No baseline file", [("", {"path": args.baseline}, why)]))
+    return rules, head
+
+
+def check(args: argparse.Namespace) -> int:
+    root = toplevel()
+    report = json.loads(Path(args.report).read_text(encoding="utf-8"))
+    found = {f["fingerprint"]: f for f in report["findings"] if f.get("severity") != "warning"}
+    warnings = [f for f in report["findings"] if f.get("severity") == "warning"]
+    rules, head = baseline_rules(args, root, found)
     notes: list[str] = []
     if args.base_dir:
         more, notes = pull_request_rules(args, root, found, head)
@@ -681,6 +756,10 @@ def check(args: argparse.Namespace) -> int:
 
     failed = [(heading, rows) for heading, rows in rules if rows]
     print_failures(failed)
+    if warnings:
+        notes.append(f"{len(warnings)} warnings, which do not fail the check; see the report.")
+    if warnings and args.base_dir:
+        annotate_warnings(warnings, changed_files(Path(args.base_dir), root))
     for note in notes:
         print(f"- {note.replace('`', '')}")
     verdict = "✖ repo health does not hold" if failed else "✔ repo health holds"

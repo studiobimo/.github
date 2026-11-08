@@ -14,20 +14,59 @@ import os
 import sys
 import xml.etree.ElementTree as ET
 from pathlib import Path
+from xml.parsers import expat
 
 # How many failing tests to name before saying "and N more". The full report is
 # uploaded as an artifact; this is a summary.
 MAX_FAILURES = 20
 
 
+class Refused(ValueError):
+    """The report declares an entity, which a report has no use for."""
+
+
+def refuse(*_args) -> None:
+    raise Refused
+
+
+def parse(report: Path) -> ET.Element | None:
+    """The report's root element, or None when it is truncated or declares an entity.
+
+    The reports are the build's own output, but the tests that wrote them can put anything in
+    them. So the parse refuses what an XML entity attack needs -- an entity declaration or an
+    external reference -- rather than expanding it, as defusedxml does by default. A DOCTYPE
+    alone is fine: JaCoCo writes one.
+    """
+    builder = ET.TreeBuilder()
+    parser = expat.ParserCreate()
+    parser.SetParamEntityParsing(expat.XML_PARAM_ENTITY_PARSING_NEVER)
+    # expat reads these back itself, which is why they are set by name.
+    settings = {
+        "buffer_text": True,
+        "StartElementHandler": builder.start,
+        "EndElementHandler": builder.end,
+        "CharacterDataHandler": builder.data,
+        "EntityDeclHandler": refuse,
+        "UnparsedEntityDeclHandler": refuse,
+        "ExternalEntityRefHandler": refuse,
+    }
+    for name, value in settings.items():
+        setattr(parser, name, value)
+    try:
+        with report.open("rb") as f:
+            parser.ParseFile(f)
+        return builder.close()
+    except (expat.ExpatError, Refused):
+        # A run killed mid-write leaves a truncated file; the others still count.
+        return None
+
+
 def junit(root: Path) -> tuple[dict[str, int], list[str]]:
     totals = {"tests": 0, "failures": 0, "errors": 0, "skipped": 0}
     failures: list[str] = []
     for report in sorted(root.glob("**/build/test-results/**/TEST-*.xml")):
-        try:
-            suite = ET.parse(report).getroot()
-        except ET.ParseError:
-            # A run killed mid-write leaves a truncated file; the others still count.
+        suite = parse(report)
+        if suite is None:
             continue
         for key in totals:
             totals[key] += int(suite.get(key, 0))
@@ -43,9 +82,8 @@ def jacoco(root: Path) -> tuple[int, int] | None:
     covered = missed = 0
     found = False
     for report in sorted(root.glob("**/build/reports/jacoco/**/*.xml")):
-        try:
-            tree = ET.parse(report).getroot()
-        except ET.ParseError:
+        tree = parse(report)
+        if tree is None:
             continue
         # The last LINE counter at report level is the project total.
         for counter in tree.findall("counter"):
