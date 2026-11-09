@@ -84,6 +84,10 @@ bumped from that directory with `MISE_CEILING_PATHS` set (the README has the ste
 `changed-paths.mjs`, the guard behind the `paths` input of the gated reusables, has its own
 `node --test .github/actions/changed-paths/changed-paths.test.mjs`, which `self-lint` runs. Its
 compare API call runs for real in `self-changed-paths` on a pull request here that touches it.
+`pr-stack.mjs`, the guard that tells the middle of a stack of pull requests from its top and
+bottom, has `node --test .github/actions/pr-stack/pr-stack.test.mjs`, against a stand-in for the
+pulls API; `self-pr-stack` makes the real calls on a pull request here and checks them against
+`gh pr list`. Stack it on another pull request to see the `middle` answer.
 The shell scripts are called two ways — by `ci-pr` with explicit arguments and by the git hooks with none — so
 a change to one has to keep both working. Try the shared hooks end to end from a consumer checkout
 by pointing its `remotes` entry at your branch: `ref: <branch>` with `refetch: true`.

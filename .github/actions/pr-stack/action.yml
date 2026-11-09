@@ -1,0 +1,33 @@
+name: PR stack
+description: >-
+  Reports where a pull request sits in a stack of pull requests, so a job can skip its expensive
+  steps on the middle of a stack and still report success. The top (the cumulative tree) and the
+  bottom (the one the rulesets gate, which merges first) always run. Non-pull-request events,
+  forks and a failed lookup always answer `intermediate=false`. Needs `pull-requests: read` and
+  no checkout.
+
+inputs:
+  token:
+    description: Token for the pulls API. Needs pull-requests read on the repository.
+    required: false
+    default: ${{ github.token }}
+
+outputs:
+  intermediate:
+    description: "'true' only for the middle of a stack, where the job may skip its work; else 'false'."
+    value: ${{ steps.stack.outputs.intermediate }}
+  position:
+    description: >-
+      `single`, `bottom`, `middle` or `top`; `none` for a non-pull-request event or a fork, and
+      `unknown` when the lookup failed.
+    value: ${{ steps.stack.outputs.position }}
+
+runs:
+  using: composite
+  steps:
+    - name: Look up the stack
+      id: stack
+      shell: bash
+      env:
+        TOKEN: ${{ inputs.token }}
+      run: node "${GITHUB_ACTION_PATH}/pr-stack.mjs"

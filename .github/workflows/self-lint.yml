@@ -87,3 +87,8 @@ jobs:
       # no install: self-changed-paths runs the compare API call itself.
       - name: Test the changed-paths guard
         run: node --test .github/actions/changed-paths/changed-paths.test.mjs
+
+      # Decision logic for the pr-stack guard, with a stand-in for the pulls API. Pure Node, no
+      # install: self-pr-stack makes the real calls.
+      - name: Test the pr-stack guard
+        run: node --test .github/actions/pr-stack/pr-stack.test.mjs
