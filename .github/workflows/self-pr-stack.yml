@@ -1,0 +1,67 @@
+name: self-pr-stack
+
+# Dogfooding caller for the pr-stack action, against the real pulls API on a real pull request.
+# self-lint tests the decision logic offline; this is the one place the token, the two list calls
+# and the event payload meet. It checks the action's answer against the same question asked
+# through gh, and treats `unknown` as a failure: the action fails open, which would otherwise
+# hide a broken lookup behind a passing run.
+#
+# It is not a required check, so a trigger-level `paths:` filter is fine here.
+
+on:
+  pull_request:
+    paths:
+      - '.github/actions/pr-stack/**'
+      - '.github/workflows/self-pr-stack.yml'
+
+permissions: {}
+
+concurrency:
+  group: self-pr-stack-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  guard:
+    name: Guard answers
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      pull-requests: read
+    steps:
+      - name: Look up this pull request's stack
+        id: stack
+        uses: $/.github/actions/pr-stack
+
+      - name: Check the answer
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          POSITION: ${{ steps.stack.outputs.position }}
+          INTERMEDIATE: ${{ steps.stack.outputs.intermediate }}
+          HEAD_REF: ${{ github.head_ref }}
+          BASE_REF: ${{ github.base_ref }}
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+          FORK: ${{ github.event.pull_request.head.repo.full_name != github.repository }}
+        run: |
+          if [ "${FORK}" = true ]; then
+            expected=none
+          else
+            child=$(gh pr list --state open --base "${HEAD_REF}" --json number --jq length)
+            parent=0
+            if [ "${BASE_REF}" != "${DEFAULT_BRANCH}" ]; then
+              parent=$(gh pr list --state open --head "${BASE_REF}" --json number --jq length)
+            fi
+            case "${parent}-${child}" in
+              0-0) expected=single ;;
+              0-*) expected=bottom ;;
+              *-0) expected=top ;;
+              *) expected=middle ;;
+            esac
+          fi
+          want_intermediate=false
+          [ "${expected}" = middle ] && want_intermediate=true
+          echo "position=${POSITION} intermediate=${INTERMEDIATE}; gh says ${expected}"
+          if [ "${POSITION}" != "${expected}" ] || [ "${INTERMEDIATE}" != "${want_intermediate}" ]; then
+            echo "::error::pr-stack answered '${POSITION}' (intermediate=${INTERMEDIATE}), expected '${expected}'"
+            exit 1
+          fi
