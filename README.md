@@ -25,6 +25,7 @@ everywhere at once.
 | `.github/workflows/promote-release.yml`   | Opens the `release/v<version>` pull request from `develop` into `main`             |
 | `.github/workflows/semantic-release.yml`  | Tags and releases `main` straight from Conventional Commits                        |
 | `.github/workflows/publish-mod.yml`       | Builds, attests and publishes a Minecraft mod to Modrinth, CurseForge and GitHub   |
+| `.github/workflows/publish-package.yml`   | Builds and publishes an npm package to GitHub Packages for a release tag           |
 
 A repo with a `lefthook.yml` should call `ci-lint.yml` **instead of** `ci-workflows.yml` and
 `ci-gitleaks.yml`, not alongside them. Those two download actionlint, zizmor, shellcheck and
@@ -37,10 +38,10 @@ own pull requests. The `self-*` files are this repo's thin callers of them, whic
 library is proven before a consumer pins `@v1`. `release.yml` is neither: it is this repo's own
 release, and the only thing here that writes a tag.
 
-`release-please.yml` and `publish-mod.yml` are library code too, under a plain name rather than a
-`ci-` one: they run at release time in a consumer, not on its pull requests. Neither has a `self-*`
-caller — there is no mod to publish here, and this repo releases itself with semantic-release, so
-running release-please against it would fight over the same tags. Both are therefore tested
+`release-please.yml`, `publish-mod.yml` and `publish-package.yml` are library code too, under a plain name rather than a
+`ci-` one: they run at release time in a consumer, not on its pull requests. None has a `self-*`
+caller — there is nothing to publish here, and this repo releases itself with semantic-release, so
+running release-please against it would fight over the same tags. They are therefore tested
 cross-repo; see [AGENTS.md](AGENTS.md).
 
 ### Skipping work a pull request does not touch
@@ -226,6 +227,26 @@ jobs:
 ```
 
 `workflow-templates/release-mod.yml` is that wiring, ready to copy.
+
+An npm package goes to GitHub Packages the same way, with `publish-package.yml` in place of
+`publish-mod.yml`. It takes the release tag and the package directory, publishes with the run's
+`GITHUB_TOKEN`, and needs no secret. `packages: write` is held by its one job only.
+
+```yaml
+publish:
+  needs: release
+  if: ${{ needs.release.outputs.release-created == 'true' }}
+  permissions:
+    contents: read
+    packages: write
+  uses: studiobimo/.github/.github/workflows/publish-package.yml@v1
+  with:
+    tag-name: ${{ needs.release.outputs.tag-name }}
+    package-directory: packages/backstage
+    build-command: pnpm build
+```
+
+Set `dry-run: true` to build and pack without publishing.
 
 Each workflow and action documents its own inputs: the workflows in their `workflow_call` block, the
 actions in a README beside them.
