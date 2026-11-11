@@ -1,0 +1,115 @@
+name: Publish package
+
+# Publishes an npm package to GitHub Packages (npm.pkg.github.com) for the tag a
+# release cut. Private studio packages call it after release-please, the same way
+# publish-mod.yml follows it for mods.
+#
+# THIS JOB HOLDS A WRITE TOKEN AND RUNS THE REPOSITORY'S INSTALL AND BUILD. Only call
+# it for a commit already on the default branch or an existing release -- never from a
+# pull_request trigger, where a fork could rewrite the build. Lifecycle scripts are
+# off for the install, but `build-command` is the caller's own code.
+#
+# The publish uses the run's GITHUB_TOKEN, so no secret is passed. Chain it behind
+# release-please.yml, whose tag-name output it takes; a tag made with GITHUB_TOKEN
+# does not trigger a separate `on: push: tags` workflow.
+#
+#   publish:
+#     needs: release
+#     if: ${{ needs.release.outputs.release-created == 'true' }}
+#     permissions:
+#       contents: read
+#       packages: write
+#     uses: studiobimo/.github/.github/workflows/publish-package.yml@v1
+#     with:
+#       tag-name: ${{ needs.release.outputs.tag-name }}
+#       package-directory: packages/backstage
+
+on:
+  workflow_call:
+    inputs:
+      tag-name:
+        description: Tag being published, e.g. v0.1.0. Checked out so the package matches the release exactly.
+        type: string
+        required: true
+      package-directory:
+        description: Directory holding the package's package.json, relative to the repository root.
+        type: string
+        required: false
+        default: .
+      node-version:
+        description: Node version.
+        type: string
+        required: false
+        default: '24'
+      build-command:
+        description: Command run from the repository root before publishing, e.g. `pnpm build`. Empty to skip.
+        type: string
+        required: false
+        default: ''
+      registry-url:
+        description: Registry to publish to.
+        type: string
+        required: false
+        default: https://npm.pkg.github.com
+      dry-run:
+        description: Build and pack, but do not publish. Use it to rehearse a release.
+        type: boolean
+        required: false
+        default: false
+
+permissions: {}
+
+jobs:
+  publish:
+    name: Publish ${{ inputs.tag-name }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      # Reading the repository at the tag.
+      contents: read
+      # Pushing the package to GitHub Packages. This job only.
+      packages: write
+    # Publishing one version twice fails, so a second run for a tag waits for the first.
+    # A release is never cancelled half way through.
+    concurrency:
+      group: ci-publish-package-${{ inputs.tag-name }}
+      cancel-in-progress: false
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ inputs.tag-name }}
+          persist-credentials: false
+
+      - name: Enable pnpm via corepack
+        run: corepack enable
+
+      - name: Set up Node
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: ${{ inputs.node-version }}
+          registry-url: ${{ inputs.registry-url }}
+          package-manager-cache: false
+
+      # --ignore-scripts: no dependency runs code at install time in a job that holds
+      # a token able to write packages.
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile --ignore-scripts
+
+      - name: Build
+        if: ${{ inputs.build-command != '' }}
+        env:
+          BUILD_COMMAND: ${{ inputs.build-command }}
+        run: bash -c "${BUILD_COMMAND}"
+
+      - name: Publish to GitHub Packages
+        working-directory: ${{ inputs.package-directory }}
+        env:
+          # setup-node's .npmrc reads this variable.
+          NODE_AUTH_TOKEN: ${{ github.token }}
+          DRY_RUN: ${{ inputs.dry-run }}
+        run: | # zizmor: ignore[use-trusted-publishing]
+          args=(--no-git-checks --access restricted)
+          if [ "${DRY_RUN}" = "true" ]; then
+            args+=(--dry-run)
+          fi
+          pnpm publish "${args[@]}"
