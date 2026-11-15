@@ -91,8 +91,12 @@ jobs:
           package-manager-cache: false
 
       # --ignore-scripts: no dependency runs code at install time in a job that holds
-      # a token able to write packages.
+      # a token able to write packages. The install needs the token too: the package's
+      # own @scope resolves through npm.pkg.github.com, and setup-node's .npmrc reads
+      # NODE_AUTH_TOKEN, which fails with a 401 when it is unset.
       - name: Install dependencies
+        env:
+          NODE_AUTH_TOKEN: ${{ github.token }}
         run: pnpm install --frozen-lockfile --ignore-scripts
 
       - name: Build
