@@ -129,13 +129,20 @@ title is also still editable in the merge box.
 
 `ci-pr-events.yml` is the companion, called from a separate `pr-events.yml` on
 `pull_request: types: [edited, labeled]`. It re-runs the title check when the title changes, and
-dispatches the CI workflow with `full=true` when `ci:full` is added, or `full=false` when the
-pull request is retargeted (narrowing is against the base). It is a separate workflow because a
+dispatches the CI workflow with `full=true` when `ci:full` is added, and, best-effort, with
+`full=false` when the pull request is retargeted (narrowing is against the base). It is a separate workflow because a
 run that skips jobs posts skipped check runs under the same names on the same commit, and a
 skipped `ci / validate` could mask an earlier failure of the real one. The dispatch is the one
 event a `GITHUB_TOKEN` may trigger, so the caller's `ci.yml` must declare
 `workflow_dispatch: inputs: full: {type: boolean}` and pass it on. Do not filter `ci.yml`'s
 trigger with `paths:`; the required checks would never report. Use the `paths` input.
+
+The base-change dispatch cannot be relied on. Observed on 2026-11-16: deleting a merged pull
+request's head branch retargeted one stacked pull request but closed the next one, and changing a
+pull request's base by hand did not fire `pull_request: edited` at all. What re-runs CI after a
+retarget is the restack push (`synchronize`), which a squash-merged stack needs anyway because
+each pull request's commits no longer match its new base. Merge stacks with `gh stack`, or
+restack before deleting branches.
 
 ```yaml
 # .github/workflows/ci.yml
@@ -391,13 +398,19 @@ Every repository carries the same settings and the same branch rules, defined he
 | ---------------------------- | ---------------------------- | ----------------------------------------------------------------------------------------------- |
 | `default-branch`             | the default branch           | Pull request required, squash only, linear history, resolved threads, no force push or deletion |
 | `release-tags`               | `v*.*.*` and `<name>-v*.*.*` | A release tag cannot be moved or deleted. The floating `v1` is not matched                      |
-| `checks-project`             | the default branch           | Requires `pr-checks` and `lint`                                                                 |
-| `checks-java-gradle`         | the default branch           | Requires the Gradle `check`                                                                     |
-| `checks-vite-react-tanstack` | the default branch           | Requires the web app's `check`: build, types, lint, tests, bundle budget, audit                 |
+| `checks-project`             | the default branch           | Requires `ci / baseline` and `ci / validate`; also covers `develop`                             |
+| `checks-java-gradle`         | the default branch           | Requires `ci / baseline` and `ci / validate` (the Gradle `check` runs inside validate)          |
+| `checks-vite-react-tanstack` | the default branch           | Requires `ci / baseline` and `ci / validate` (build, types, lint, tests, bundle budget, audit)  |
 | `checks-dotgithub`           | the default branch           | Requires this repo's own `self-*` checks                                                        |
 
 Rulesets stack, so a repository takes the pieces that fit it. Required checks are separate from
-`default-branch` because the check names differ by stack.
+`default-branch` so a repository without CI can take the branch rules alone.
+
+`checks-java-gradle` and `checks-vite-react-tanstack` once required the stack's own check
+(`check / check`, `check`). Every project now reports `ci / baseline` and `ci / validate`, so they
+require those, as `checks-project` does. They stay as files because the script never deletes a
+ruleset: removing the files would leave the old rulesets on repositories, requiring checks that
+never report.
 
 A `checks-<profile>` ruleset follows the project-template profiles: a repository whose
 `.template-profiles` names `java-gradle` gets `checks-java-gradle` on top of its listed
