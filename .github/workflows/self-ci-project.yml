@@ -38,10 +38,11 @@ jobs:
     # `./` rather than `$/`, so actionlint checks the call; .github/zizmor.yml says why.
     uses: ./.github/workflows/ci-project.yml
     with:
-      github-packages: true
-      # Asserts the auth reached the command without ever printing it.
+      # This repo has no .npmrc naming npm.pkg.github.com, so the detection must stay quiet.
+      # The positive path is not dogfooded: it would need a tracked .npmrc here, and one would
+      # change how every tool in this repo resolves packages. A consumer covers it instead.
       command: |
-        [ -n "$pnpm_config__auth" ] && echo 'auth set'
+        [ -z "${pnpm_config__auth:-}" ] && echo 'auth not set'
         node --test .github/actions/pr-stack/pr-stack.test.mjs
       paths: |
         .github/workflows/ci-project.yml

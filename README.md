@@ -99,10 +99,12 @@ for the decision is on both jobs' summaries.
 
 #### GitHub Packages
 
-Set `github-packages: true` and `validate`'s command can install private npm packages from
-`npm.pkg.github.com`. A step exports `pnpm_config__auth`, which pnpm reads as credentials for that
-registry, built from the run's `github.token`; the repo's `.npmrc` only needs its scope line, e.g.
-`@studiobimo:registry=https://npm.pkg.github.com`, and no token line.
+When a tracked `.npmrc` (at the root or in any workspace package) names `npm.pkg.github.com`,
+`validate` exports `pnpm_config__auth`, which pnpm reads as credentials for that registry, built
+from the run's `github.token`, so its command can install private packages. Nothing to configure:
+a repo whose `.npmrc` only has the scope line, e.g.
+`@studiobimo:registry=https://npm.pkg.github.com`, is detected, and a repo that does not use
+GitHub Packages never has the token in its command's environment.
 
 ```yaml
 jobs:
@@ -112,11 +114,9 @@ jobs:
       pull-requests: read
       packages: read
     uses: studiobimo/.github/.github/workflows/ci-project.yml@v1
-    with:
-      github-packages: true
 ```
 
-> **Every caller must grant `packages: read`**, whether or not it sets the input. `validate`
+> **Every caller must grant `packages: read`**, whether or not it uses GitHub Packages. `validate`
 > always requests it (job permissions cannot be conditional), and a reusable job cannot get a
 > permission its caller did not grant, so a caller without it fails to start. project-template
 > v0.14.1 grants it. Release this only once every consumer is on that version. The `baseline`
