@@ -78,6 +78,7 @@ the version files it pins its tools with, or a change to one of them is skipped.
 | `.github/actions/repo-health`       | The repo health check, for direct use after your own setup   |
 | `.github/actions/build-summary`     | JUnit + JaCoCo numbers into the job summary                  |
 | `.github/actions/changed-paths`     | Whether a pull request touches any of a list of globs        |
+| `.github/actions/pr-stack`          | Whether a pull request is in the middle of a stack           |
 
 ## Git hooks
 
