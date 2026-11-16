@@ -47,8 +47,33 @@ const anyOpen = async ({ api, repository, token, query }) => {
   return pulls.length > 0;
 };
 
+/**
+ * Looks up both neighbours of a pull request given as `{ headRef, baseRef }`. A pull request
+ * into an integration branch (the default branch, plus any in `integrationBranches`) is the
+ * bottom by definition, since that is where stacks land and where the rulesets gate; an open
+ * `develop` -> `main` pull request does not make it a middle one.
+ */
+export const findNeighbours = async ({
+  pr,
+  repository,
+  defaultBranch,
+  integrationBranches = [],
+  api,
+  token,
+  lookup = anyOpen,
+}) => {
+  const owner = repository.split("/")[0];
+  const common = { api, repository, token };
+  const intoIntegration = [defaultBranch, ...integrationBranches].includes(pr.baseRef);
+  const [hasParent, hasChild] = await Promise.all([
+    intoIntegration ? false : lookup({ ...common, query: { head: `${owner}:${pr.baseRef}` } }),
+    lookup({ ...common, query: { base: pr.headRef } }),
+  ]);
+  return { hasParent, hasChild };
+};
+
 /** Reads the event and looks up both neighbours. Never throws: a failure is reported in `error`. */
-export const inspect = async ({ env, lookup = anyOpen }) => {
+export const inspect = async ({ env, lookup = anyOpen, integrationBranches = [] }) => {
   const event = env.GITHUB_EVENT_NAME ?? "";
   if (!PULL_REQUEST_EVENTS.includes(event)) return { event };
   try {
@@ -57,17 +82,16 @@ export const inspect = async ({ env, lookup = anyOpen }) => {
     const repository = env.GITHUB_REPOSITORY;
     // `head.repo` is null once a fork is deleted; that is still not this repository.
     if (pr.head.repo?.full_name !== repository) return { event, fork: true };
-    const owner = repository.split("/")[0];
-    const common = { api: env.GITHUB_API_URL, repository, token: env.TOKEN };
-    // A pull request into the default branch is the bottom by definition, since that is the
-    // branch the rulesets gate; an open `develop` -> `main` pull request does not make it a
-    // middle one.
-    const intoDefault = pr.base.ref === payload.repository?.default_branch;
-    const [hasParent, hasChild] = await Promise.all([
-      intoDefault ? false : lookup({ ...common, query: { head: `${owner}:${pr.base.ref}` } }),
-      lookup({ ...common, query: { base: pr.head.ref } }),
-    ]);
-    return { event, hasParent, hasChild };
+    const neighbours = await findNeighbours({
+      pr: { headRef: pr.head.ref, baseRef: pr.base.ref },
+      repository,
+      defaultBranch: payload.repository?.default_branch,
+      integrationBranches,
+      api: env.GITHUB_API_URL,
+      token: env.TOKEN,
+      lookup,
+    });
+    return { event, ...neighbours };
   } catch (error) {
     return { event, error: error.message };
   }

@@ -1,0 +1,102 @@
+name: self-ci-policy
+
+# Dogfooding caller for the ci-policy action, against the real pulls and compare APIs on a real
+# pull request. self-lint tests the decision table offline against a stand-in; this is the one
+# place the token, the event payload, the compare call and the stack lookup meet. The action fails
+# open, which would otherwise hide a broken lookup behind a passing run, so the answers are
+# checked here.
+#
+# It is not a required check, so a trigger-level `paths:` filter is fine here: the filter is also
+# what guarantees the pull request touches the files the second call relies on.
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, ready_for_review, converted_to_draft]
+    paths:
+      - '.github/actions/ci-policy/**'
+      - '.github/workflows/self-ci-policy.yml'
+
+permissions: {}
+
+concurrency:
+  group: self-ci-policy-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  policy:
+    name: Policy answers
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      pull-requests: read
+    steps:
+      - name: A path no pull request touches
+        id: untouched
+        uses: $/.github/actions/ci-policy
+        with:
+          paths: |
+            does-not-exist/**
+
+      # The trigger above only fires when one of these changed, so the path rule always passes.
+      - name: A path this pull request touches
+        id: touched
+        uses: $/.github/actions/ci-policy
+        with:
+          paths: |
+            .github/actions/ci-policy/**
+            .github/workflows/self-ci-policy.yml
+
+      - name: Check the answers
+        env:
+          UNTOUCHED: ${{ steps.untouched.outputs.validate }}
+          TOUCHED: ${{ steps.touched.outputs.validate }}
+          AFFECTED_BASE: ${{ steps.touched.outputs.affected-base }}
+          POSITION: ${{ steps.touched.outputs.position }}
+          REASON: ${{ steps.touched.outputs.reason }}
+          PULL_REQUEST: ${{ steps.touched.outputs.pull-request }}
+          NUMBER: ${{ github.event.pull_request.number }}
+          DRAFT: ${{ github.event.pull_request.draft }}
+          BASE_REF: ${{ github.base_ref }}
+          FORK: ${{ github.event.pull_request.head.repo.full_name != github.repository }}
+        run: |
+          status=0
+          expect() {
+            if [ "$2" != "$3" ]; then
+              echo "::error::${1} answered '${2}', expected '${3}'"
+              status=1
+            fi
+          }
+
+          # A fork always validates the full suite. Otherwise the untouched path is not
+          # applicable, and the touched one validates unless this is a draft or the middle of a
+          # stack; against main (a full branch) that means the full suite, against any other
+          # base it narrows to that base.
+          if [ "${FORK}" = true ]; then
+            want_untouched=true
+            want_touched=true
+            want_base=''
+          else
+            want_untouched=false
+            want_touched=true
+            want_base="${BASE_REF}"
+            if [ "${DRAFT}" = true ] || [ "${POSITION}" = middle ]; then
+              want_touched=false
+              want_base=''
+            elif [ "${BASE_REF}" = main ]; then
+              want_base=''
+            fi
+          fi
+          echo "validate=${TOUCHED} affected-base='${AFFECTED_BASE}' position=${POSITION} (${REASON})"
+          expect 'a path no pull request touches' "${UNTOUCHED}" "${want_untouched}"
+          expect 'a path this pull request touches' "${TOUCHED}" "${want_touched}"
+          expect 'affected-base' "${AFFECTED_BASE}" "${want_base}"
+          if [ "${POSITION}" = unknown ]; then
+            echo "::error::the stack lookup failed, so the position is unknown"
+            status=1
+          fi
+
+          # The output has to be one parseable JSON document about this pull request.
+          number=$(printf '%s' "${PULL_REQUEST}" | jq -r '.number')
+          expect 'pull-request number' "${number}" "${NUMBER}"
+          exit "${status}"

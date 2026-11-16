@@ -92,3 +92,8 @@ jobs:
       # install: self-pr-stack makes the real calls.
       - name: Test the pr-stack guard
         run: node --test .github/actions/pr-stack/pr-stack.test.mjs
+
+      # Decision table of the ci-policy action, with a stand-in for the GitHub API. Pure Node, no
+      # install: self-ci-policy makes the real calls.
+      - name: Test the ci-policy action
+        run: node --test .github/actions/ci-policy/ci-policy.test.mjs

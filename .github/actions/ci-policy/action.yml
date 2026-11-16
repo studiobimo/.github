@@ -1,0 +1,76 @@
+name: CI policy
+description: >-
+  Decides whether the heavy validation job of a pull request runs, and how much of it. A cheap
+  baseline runs on every push; this action lets a later job gate `validate` with an `if:` so a
+  deferred run allocates no runner. Validation runs on ready pull requests, is deferred on drafts
+  and the middle of a stack, is forced to the full suite by a label or `full`, and otherwise
+  narrows tests to what changed against the base. Every lookup failure fails open to "run, full
+  suite". Needs `contents: read` and `pull-requests: read`, and no checkout.
+
+inputs:
+  paths:
+    description: >-
+      Newline-separated globs with the changed-paths syntax. Validation applies only when the
+      pull request touches one. Empty means always applicable.
+    required: false
+    default: ''
+  integration-branches:
+    description: >-
+      Newline-separated branches stacks land on. A pull request into one of them is the bottom of
+      its stack, never the middle. The default branch always counts.
+    required: false
+    default: |
+      main
+      develop
+  full-branches:
+    description: Newline-separated branches whose pull requests run the full suite.
+    required: false
+    default: main
+  full-label:
+    description: Label that forces validation and the full suite.
+    required: false
+    default: ci:full
+  full:
+    description: "'true' forces validation and the full suite (wire a workflow_dispatch input here)."
+    required: false
+    default: 'false'
+  token:
+    description: Token for the pulls and compare APIs. Needs pull-requests and contents read.
+    required: false
+    default: ${{ github.token }}
+
+outputs:
+  validate:
+    description: "'true' when the validate job should run, else 'false'."
+    value: ${{ steps.policy.outputs.validate }}
+  affected-base:
+    description: >-
+      Base branch name to narrow tests against, or empty for the full suite. Only non-empty when
+      `validate` is 'true'.
+    value: ${{ steps.policy.outputs.affected-base }}
+  reason:
+    description: One human-readable line explaining the decision.
+    value: ${{ steps.policy.outputs.reason }}
+  position:
+    description: 'Stack position: `single`, `bottom`, `middle`, `top`, `none` or `unknown`.'
+    value: ${{ steps.policy.outputs.position }}
+  pull-request:
+    description: >-
+      Compact JSON of the pull request the decision was about (number, title, author, base_ref,
+      base_sha, head_ref, head_sha, draft, labels), or empty when there is none.
+    value: ${{ steps.policy.outputs.pull-request }}
+
+runs:
+  using: composite
+  steps:
+    - name: Decide
+      id: policy
+      shell: bash
+      env:
+        PATHS: ${{ inputs.paths }}
+        INTEGRATION_BRANCHES: ${{ inputs.integration-branches }}
+        FULL_BRANCHES: ${{ inputs.full-branches }}
+        FULL_LABEL: ${{ inputs.full-label }}
+        FULL: ${{ inputs.full }}
+        TOKEN: ${{ inputs.token }}
+      run: node "${GITHUB_ACTION_PATH}/ci-policy.mjs"
