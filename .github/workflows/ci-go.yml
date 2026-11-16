@@ -116,9 +116,13 @@ jobs:
         if: steps.changes.outputs.changed == 'true'
         with:
           go-version-file: ${{ inputs.working-directory }}/${{ inputs.go-version-file }}
+          # golangci-lint is compiled into the Go build cache, so the key must change when its
+          # version does, or a bump hits the old key and the new build is never saved. The
+          # fallback to go.mod keeps the list valid (no empty path) when the file input is empty.
           cache-dependency-path: |
             ${{ inputs.working-directory }}/go.sum
             ${{ inputs.working-directory }}/go.mod
+            ${{ inputs.working-directory }}/${{ inputs.golangci-lint-version-file || 'go.mod' }}
 
       # One file is the source of truth for the linter version, shared with the
       # repo's Makefile. The input is the fallback.
