@@ -5,7 +5,7 @@ import { mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
-import { decide, inspect } from "./pr-stack.mjs";
+import { decide, findNeighbours, inspect } from "./pr-stack.mjs";
 
 const REPO = "studiobimo/example";
 
@@ -140,4 +140,37 @@ test("inspect reports an unreadable event instead of throwing", async () => {
   const found = await inspect({ env, lookup: fakeLookup([]) });
   assert.ok(found.error);
   assert.equal(decide(found).position, "unknown");
+});
+
+test("a pull request into any integration branch is the bottom", async () => {
+  const open = [
+    { head: "develop", base: "main" },
+    { head: "feat/a", base: "develop" },
+    { head: "feat/b", base: "feat/a" },
+  ];
+  const calls = [];
+  const env = eventEnv({ head: "feat/a", base: "develop" });
+  const found = await inspect({
+    env,
+    lookup: fakeLookup(open, calls),
+    integrationBranches: ["develop"],
+  });
+  assert.deepEqual([found.hasParent, found.hasChild], [false, true]);
+  assert.deepEqual(calls, [{ base: "feat/a" }]);
+  // Without the list, the open develop -> main pull request would make it a top, not a bottom.
+  const without = await inspect({ env, lookup: fakeLookup(open) });
+  assert.equal(without.hasParent, true);
+});
+
+test("findNeighbours counts the default branch even when it is not listed", async () => {
+  const calls = [];
+  const found = await findNeighbours({
+    pr: { headRef: "feat/a", baseRef: "main" },
+    repository: REPO,
+    defaultBranch: "main",
+    integrationBranches: ["develop"],
+    lookup: fakeLookup([{ head: "main", base: "x" }], calls),
+  });
+  assert.equal(found.hasParent, false);
+  assert.deepEqual(calls, [{ base: "feat/a" }]);
 });

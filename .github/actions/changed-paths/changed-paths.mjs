@@ -81,7 +81,7 @@ export const decide = ({ event, patterns, files = [], truncated = false }) => {
     : { changed: false, reason: `none of ${files.length} changed files match` };
 };
 
-const compareFiles = async ({ api, repository, base, head, token }) => {
+export const compareFiles = async ({ api, repository, base, head, token }) => {
   const response = await fetch(`${api}/repos/${repository}/compare/${base}...${head}`, {
     headers: {
       accept: "application/vnd.github+json",

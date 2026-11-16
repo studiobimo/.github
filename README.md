@@ -70,15 +70,16 @@ the version files it pins its tools with, or a change to one of them is skipped.
 
 ## Composite actions
 
-| Action                              | What it does                                                 |
-| ----------------------------------- | ------------------------------------------------------------ |
-| `.github/actions/setup-java-gradle` | Temurin JDK + Gradle with branch-aware caching               |
-| `.github/actions/pr-checks`         | The PR title, branch, size and commit checks, for direct use |
-| `.github/actions/issue-title`       | The issue title check, for direct use                        |
-| `.github/actions/repo-health`       | The repo health check, for direct use after your own setup   |
-| `.github/actions/build-summary`     | JUnit + JaCoCo numbers into the job summary                  |
-| `.github/actions/changed-paths`     | Whether a pull request touches any of a list of globs        |
-| `.github/actions/pr-stack`          | Whether a pull request is in the middle of a stack           |
+| Action                              | What it does                                                           |
+| ----------------------------------- | ---------------------------------------------------------------------- |
+| `.github/actions/setup-java-gradle` | Temurin JDK + Gradle with branch-aware caching                         |
+| `.github/actions/pr-checks`         | The PR title, branch, size and commit checks, for direct use           |
+| `.github/actions/issue-title`       | The issue title check, for direct use                                  |
+| `.github/actions/repo-health`       | The repo health check, for direct use after your own setup             |
+| `.github/actions/build-summary`     | JUnit + JaCoCo numbers into the job summary                            |
+| `.github/actions/changed-paths`     | Whether a pull request touches any of a list of globs                  |
+| `.github/actions/pr-stack`          | Whether a pull request is in the middle of a stack                     |
+| `.github/actions/ci-policy`         | Whether a pull request runs the heavy validate job, and how much of it |
 
 ## Git hooks
 
