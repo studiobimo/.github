@@ -1,0 +1,20 @@
+name: self-pr-events
+
+# Dogfooding caller for ci-pr-events: a title edit re-runs the title checks, and the `ci:full`
+# label or a retarget dispatches self-ci-project. Not a required check.
+
+on:
+  pull_request:
+    types: [edited, labeled]
+
+permissions: {}
+
+jobs:
+  events:
+    permissions:
+      contents: read
+      actions: write
+    # `./` rather than `$/`, so actionlint checks the call; .github/zizmor.yml says why.
+    uses: ./.github/workflows/ci-pr-events.yml
+    with:
+      workflow: self-ci-project.yml

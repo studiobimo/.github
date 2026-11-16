@@ -1,0 +1,110 @@
+name: ci-pr-events
+
+# Reusable: the pull request events that must not run CI itself. Call it from a `pr-events.yml`
+# triggered on `pull_request: types: [edited, labeled]`.
+#
+# It is a separate workflow from the caller's CI on purpose. A workflow whose jobs are skipped
+# on an event posts skipped check runs under the same names as the real ones, on the same
+# commit, and a skipped `ci / validate` from a label event could mask an earlier failure of the
+# real one. Here the checks have other names, so nothing a ruleset requires is ever touched.
+#
+#   on:
+#     pull_request:
+#       types: [edited, labeled]
+#   jobs:
+#     events:
+#       uses: studiobimo/.github/.github/workflows/ci-pr-events.yml@v1
+#       permissions:
+#         contents: read
+#         actions: write
+#
+# Two things happen here. A title edit re-runs the title checks, since the title becomes the
+# squash commit. And adding `ci:full`, or retargeting the pull request, asks the caller's CI to
+# run again through workflow_dispatch: it is the one event a GITHUB_TOKEN may trigger. That
+# workflow needs `workflow_dispatch: inputs: full: {type: boolean}`, and must pass it to
+# ci-project's `full` input.
+
+on:
+  workflow_call:
+    inputs:
+      workflow:
+        description: The caller's CI workflow file to dispatch.
+        type: string
+        required: false
+        default: ci.yml
+      full-label:
+        description: The label that asks for a full CI run.
+        type: string
+        required: false
+        default: ci:full
+      max-files:
+        description: Most files a single pull request may change.
+        type: number
+        required: false
+        default: 20
+      check-commits:
+        description: Also require every commit in the branch to be a Conventional Commit.
+        type: boolean
+        required: false
+        default: true
+
+permissions: {}
+
+jobs:
+  title:
+    name: title
+    # `edited` also fires when only the body changes, which release-please and Dependabot do on
+    # every push; nothing checked reads the body. Dependabot's pull requests are not linted.
+    if: >-
+      ${{ github.event.action == 'edited'
+      && github.event.changes.title
+      && github.actor != 'dependabot[bot]' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    concurrency:
+      group: ci-pr-events-title-${{ github.workflow }}-${{ github.ref }}
+      cancel-in-progress: true
+    steps:
+      - name: Check out the pull request
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          # Both sides of the comparison have to be present for the size check.
+          fetch-depth: 0
+          persist-credentials: false
+
+      - uses: $/.github/actions/pr-checks
+        with:
+          title: ${{ github.event.pull_request.title }}
+          branch: ${{ github.head_ref }}
+          author: ${{ github.event.pull_request.user.login }}
+          base-sha: ${{ github.event.pull_request.base.sha }}
+          head-sha: ${{ github.event.pull_request.head.sha }}
+          max-files: ${{ inputs.max-files }}
+          check-commits: ${{ inputs.check-commits }}
+
+  request:
+    name: request full CI
+    # A fork's pull request gets a read-only token and the base repository's workflows cannot
+    # dispatch on its branch, and a fork always runs full suites anyway.
+    if: >-
+      ${{ github.event.pull_request.head.repo.full_name == github.repository
+      && ((github.event.action == 'labeled' && github.event.label.name == inputs.full-label)
+      || (github.event.action == 'edited' && github.event.changes.base)) }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      actions: write
+    steps:
+      # No checkout: gh needs only the repository, and the branch is dispatched by name.
+      # A retarget runs `full=false`, so the policy narrows against the new base; the label
+      # runs `full=true`. Everything reaches the script through the environment.
+      - name: Dispatch the CI workflow
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          WORKFLOW: ${{ inputs.workflow }}
+          HEAD_REF: ${{ github.event.pull_request.head.ref }}
+          FULL: ${{ github.event.action == 'labeled' }}
+        run: gh workflow run "${WORKFLOW}" --ref "${HEAD_REF}" -f "full=${FULL}"
