@@ -37,45 +37,60 @@ export const summarise = (pr) => ({
   labels: (pr.labels ?? []).map((label) => label.name),
 });
 
+const full = (reason) => ({ validate: true, affectedBase: "", reason });
+const skip = (reason) => ({ validate: false, affectedBase: "", reason });
+
+// What the path rule found, or null when it does not apply. A failed compare is not "nothing
+// changed": it falls through as applicable.
+const pathsVerdict = ({ patterns = [], files = [], truncated = false, compareError }) =>
+  patterns.length && !compareError
+    ? decidePaths({ event: "pull_request", patterns, files, truncated })
+    : null;
+
+// Ordered: the first rule whose `when` holds decides, so an earlier rule outranks a later one.
+const RULES = [
+  {
+    when: ({ pr }) => !pr,
+    result: () => full("not a pull request, so it validates the full suite"),
+  },
+  { when: ({ forceFull }) => forceFull, result: () => full("a full run was requested") },
+  {
+    when: ({ fork }) => fork,
+    result: () => full("a pull request from a fork validates the full suite"),
+  },
+  {
+    when: (input) => pathsVerdict(input)?.changed === false,
+    result: (input) => skip(`not applicable: ${pathsVerdict(input).reason}`),
+  },
+  {
+    when: ({ pr, fullLabel }) => fullLabel && pr.labels.includes(fullLabel),
+    result: ({ fullLabel }) => full(`the ${quote(fullLabel)} label requests the full suite`),
+  },
+  { when: ({ pr }) => pr.draft, result: () => skip("deferred: draft") },
+  {
+    when: ({ stack }) => stack?.intermediate,
+    result: () => skip("deferred: middle of a stack"),
+  },
+  {
+    when: ({ pr, fullBranches = [] }) => fullBranches.includes(pr.base_ref),
+    result: ({ pr }) => full(`it targets ${quote(pr.base_ref)}, which validates the full suite`),
+  },
+  {
+    when: () => true,
+    result: ({ pr }) => ({
+      validate: true,
+      affectedBase: pr.base_ref,
+      reason: `it validates what changed against ${quote(pr.base_ref)}`,
+    }),
+  },
+];
+
 /**
  * Returns `{ validate, affectedBase, reason }`; the first matching rule wins. `pr` is a
  * `summarise`d pull request or null. `patterns`, `files`, `truncated` and `compareError` feed the
  * path rule, and `stack` is the pr-stack decision (`{ position, intermediate }`) or null.
  */
-export const decide = ({
-  pr,
-  forceFull = false,
-  fork = false,
-  patterns = [],
-  files = [],
-  truncated = false,
-  compareError,
-  stack,
-  fullBranches = [],
-  fullLabel = "",
-}) => {
-  const full = (reason) => ({ validate: true, affectedBase: "", reason });
-  const skip = (reason) => ({ validate: false, affectedBase: "", reason });
-  if (!pr) return full("not a pull request, so it validates the full suite");
-  if (forceFull) return full("a full run was requested");
-  if (fork) return full("a pull request from a fork validates the full suite");
-  // A failed compare is not "nothing changed": it falls through as applicable.
-  if (patterns.length && !compareError) {
-    const paths = decidePaths({ event: "pull_request", patterns, files, truncated });
-    if (!paths.changed) return skip(`not applicable: ${paths.reason}`);
-  }
-  if (fullLabel && pr.labels.includes(fullLabel))
-    return full(`the ${quote(fullLabel)} label requests the full suite`);
-  if (pr.draft) return skip("deferred: draft");
-  if (stack?.intermediate) return skip("deferred: middle of a stack");
-  if (fullBranches.includes(pr.base_ref))
-    return full(`it targets ${quote(pr.base_ref)}, which validates the full suite`);
-  return {
-    validate: true,
-    affectedBase: pr.base_ref,
-    reason: `it validates what changed against ${quote(pr.base_ref)}`,
-  };
-};
+export const decide = (input) => RULES.find(({ when }) => when(input)).result(input);
 
 const defaultFetchJson = async ({ api, token, path, query }) => {
   const url = `${api}${path}${query ? `?${new URLSearchParams(query)}` : ""}`;
