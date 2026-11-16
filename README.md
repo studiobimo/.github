@@ -97,6 +97,31 @@ nothing. The decision is made by `.github/actions/ci-policy`, first match wins:
 Every lookup fails open: if the policy cannot decide, validate runs the full suite. The reason
 for the decision is on both jobs' summaries.
 
+#### GitHub Packages
+
+Set `github-packages: true` and `validate`'s command can install private npm packages from
+`npm.pkg.github.com`. A step exports `pnpm_config__auth`, which pnpm reads as credentials for that
+registry, built from the run's `github.token`; the repo's `.npmrc` only needs its scope line, e.g.
+`@studiobimo:registry=https://npm.pkg.github.com`, and no token line.
+
+```yaml
+jobs:
+  ci:
+    permissions:
+      contents: read
+      pull-requests: read
+      packages: read
+    uses: studiobimo/.github/.github/workflows/ci-project.yml@v1
+    with:
+      github-packages: true
+```
+
+> **Every caller must grant `packages: read`**, whether or not it sets the input. `validate`
+> always requests it (job permissions cannot be conditional), and a reusable job cannot get a
+> permission its caller did not grant, so a caller without it fails to start. project-template
+> v0.14.1 grants it. Release this only once every consumer is on that version. The `baseline`
+> job does not get it: its hooks run mise-pinned tools, not installed packages.
+
 #### Caching
 
 `validate` can cache what its command downloads, and does not by default. Set `cache-path` (one
