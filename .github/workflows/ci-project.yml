@@ -111,6 +111,21 @@ on:
         type: number
         required: false
         default: 20
+      cache-path:
+        description: >-
+          Newline-separated paths validate caches, in `actions/cache` syntax. Empty, the default,
+          means no caching. The cache is restored on every run and saved only by a push to an
+          integration branch; see README.md ("Caching").
+        type: string
+        required: false
+        default: ''
+      cache-key-files:
+        description: >-
+          Newline-separated globs hashed into the cache key, e.g. `pnpm-lock.yaml`. Empty falls
+          back to `mise.lock`, then to a fixed key, which a push never refreshes once saved.
+        type: string
+        required: false
+        default: ''
       runs-on:
         description: Runner label for validate.
         type: string
@@ -255,6 +270,38 @@ jobs:
             fi
           } >> "${GITHUB_STEP_SUMMARY}"
 
+      # Only a push to an integration branch may save the cache. A cache saved on a pull request
+      # can be restored by that pull request alone, so saving there piles up copies nobody
+      # reuses and evicts the useful ones (10 GB per repository). A push to an integration
+      # branch seeds what every pull request reads. The list is newline-separated, so the
+      # membership test is done here, from the environment, and exposed as an output.
+      - name: Decide whether this run seeds the cache
+        id: seed
+        if: inputs.cache-path != ''
+        env:
+          EVENT: ${{ github.event_name }}
+          REF_NAME: ${{ github.ref_name }}
+          INTEGRATION_BRANCHES: ${{ inputs.integration-branches }}
+        run: |
+          seed=false
+          if [ "${EVENT}" = push ] && printf '%s\n' "${INTEGRATION_BRANCHES}" | tr -d '\r' | grep -Fxq -- "${REF_NAME}"; then
+            seed=true
+          fi
+          echo "seed=${seed}" >> "${GITHUB_OUTPUT}"
+
+      # `hashFiles` over an empty glob list is empty, so the key falls back to mise.lock and then
+      # to a fixed word, and stays well formed. The prefix fallback restores the nearest cache
+      # when the lockfile changed, which beats starting cold.
+      - name: Restore the cache
+        id: cache
+        if: inputs.cache-path != ''
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ${{ inputs.cache-path }}
+          key: ci-project-${{ runner.os }}-${{ (inputs.cache-key-files != '' && hashFiles(inputs.cache-key-files)) || hashFiles('mise.lock') || 'nofiles' }}
+          restore-keys: |
+            ci-project-${{ runner.os }}-
+
       # The command comes from the caller's workflow, which is trusted code, but it is still
       # read from the environment so no expression is spliced into the script.
       - name: Validate
@@ -270,3 +317,15 @@ jobs:
             export CI_FULL=true
           fi
           mise exec -- bash -c "${COMMAND}"
+
+      # After the command, so a failed run never saves a half-built cache, and only on a miss of
+      # the exact key: an exact hit would be rejected as already existing.
+      - name: Save the cache
+        if: >-
+          success() && inputs.cache-path != ''
+          && steps.seed.outputs.seed == 'true'
+          && steps.cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ${{ inputs.cache-path }}
+          key: ${{ steps.cache.outputs.cache-primary-key }}

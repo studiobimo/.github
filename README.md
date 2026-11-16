@@ -97,6 +97,32 @@ nothing. The decision is made by `.github/actions/ci-policy`, first match wins:
 Every lookup fails open: if the policy cannot decide, validate runs the full suite. The reason
 for the decision is on both jobs' summaries.
 
+#### Caching
+
+`validate` can cache what its command downloads, and does not by default. Set `cache-path` (one
+path per line) and, usually, `cache-key-files` (globs hashed into the key):
+
+```yaml
+jobs:
+  ci:
+    uses: studiobimo/.github/.github/workflows/ci-project.yml@v1
+    with:
+      cache-path: |
+        ~/.local/share/pnpm/store
+        node_modules/.cache
+        ~/.cache/ms-playwright
+      cache-key-files: pnpm-lock.yaml
+```
+
+The key is `ci-project-<os>-<hash of cache-key-files>`; with the input empty it hashes `mise.lock`,
+then falls back to a fixed word, which a push never refreshes. A changed lockfile restores the
+nearest older cache by prefix, then saves a fresh one. Every run restores, before the command, but
+only a push to one of `integration-branches` saves, after the command succeeds and only on a miss
+of the exact key. A cache saved on a pull request can be restored by that pull request alone, so
+saving there piles up copies nobody reuses and evicts useful ones (10 GB per repository); a push
+to an integration branch seeds what every pull request reads. The caller's `ci.yml` therefore
+needs `push: branches: [develop, main]`, its integration branches, or nothing ever seeds the cache.
+
 A known limit: a title edited after CI passed is re-checked by `ci-pr-events`' `title` job, which
 is not a required check, so a ruleset alone does not stop a bad title from merging. The squash
 title is also still editable in the merge box.
