@@ -194,6 +194,8 @@ jobs:
           author: ${{ fromJSON(steps.policy.outputs.pull-request).author }}
           base-sha: ${{ fromJSON(steps.policy.outputs.pull-request).base_sha }}
           head-sha: ${{ fromJSON(steps.policy.outputs.pull-request).head_sha }}
+          base-ref: ${{ fromJSON(steps.policy.outputs.pull-request).base_ref }}
+          head-repo: ${{ fromJSON(steps.policy.outputs.pull-request).head_repo }}
           max-files: ${{ inputs.max-files }}
           check-commits: ${{ inputs.check-commits }}
 

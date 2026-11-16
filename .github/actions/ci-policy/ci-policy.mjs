@@ -33,6 +33,7 @@ export const summarise = (pr) => ({
   base_sha: pr.base.sha,
   head_ref: pr.head.ref,
   head_sha: pr.head.sha,
+  head_repo: pr.head.repo?.full_name ?? "",
   draft: Boolean(pr.draft),
   labels: (pr.labels ?? []).map((label) => label.name),
 });

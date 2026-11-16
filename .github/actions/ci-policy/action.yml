@@ -57,7 +57,7 @@ outputs:
   pull-request:
     description: >-
       Compact JSON of the pull request the decision was about (number, title, author, base_ref,
-      base_sha, head_ref, head_sha, draft, labels), or empty when there is none.
+      base_sha, head_ref, head_sha, head_repo, draft, labels), or empty when there is none.
     value: ${{ steps.policy.outputs.pull-request }}
 
 runs:

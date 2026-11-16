@@ -97,6 +97,10 @@ nothing. The decision is made by `.github/actions/ci-policy`, first match wins:
 Every lookup fails open: if the policy cannot decide, validate runs the full suite. The reason
 for the decision is on both jobs' summaries.
 
+A known limit: a title edited after CI passed is re-checked by `ci-pr-events`' `title` job, which
+is not a required check, so a ruleset alone does not stop a bad title from merging. The squash
+title is also still editable in the merge box.
+
 `ci-pr-events.yml` is the companion, called from a separate `pr-events.yml` on
 `pull_request: types: [edited, labeled]`. It re-runs the title check when the title changes, and
 dispatches the CI workflow with `full=true` when `ci:full` is added, or `full=false` when the

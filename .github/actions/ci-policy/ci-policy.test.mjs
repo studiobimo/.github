@@ -218,9 +218,15 @@ test("a pull_request event reads the payload, labels included", async () => {
     base_sha: "b".repeat(40),
     head_ref: "feat/b",
     head_sha: "h".repeat(40),
+    head_repo: REPO,
     draft: false,
     labels,
   });
+});
+
+test("the summary reports the head repository, empty once a fork is deleted", async () => {
+  const out = await run(eventEnv({ pr: rawPr({ headRepo: null }) }));
+  assert.equal(JSON.parse(out.outputs["pull-request"]).head_repo, "");
 });
 
 test("a ready pull request into develop narrows to develop", async () => {
