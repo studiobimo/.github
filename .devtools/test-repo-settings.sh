@@ -120,6 +120,25 @@ run "${d}" app
 check "apply creates it and exits 0" exits 0
 check "with a POST" called '^POST repos/studiobimo/app/rulesets ' "${d}"
 
+echo "a repository whose rulesets still require the old check names"
+d="${work}/renamed"
+fixture "${d}" legacy public
+base="${d}/repos_studiobimo_legacy"
+# checks-project is among the default rulesets, so it is a fixture file already.
+id="$(jq -r '.default | index("checks-project") + 1' "${root}/settings/rulesets.json")"
+jq -c '.conditions.ref_name.include = ["~DEFAULT_BRANCH"]
+    | .rules[0].parameters.required_status_checks = [
+        {context: "pr-checks / Title, branch, size, commits", integration_id: 15368},
+        {context: "lint / hooks", integration_id: 15368}]' \
+    "${base}_rulesets_${id}.json" >"${d}/r" && mv "${d}/r" "${base}_rulesets_${id}.json"
+run "${d}" --check legacy
+check "old names are a difference: --check exits 1" exits 1
+check "that adds develop" says "refs/heads/develop"
+check "and requires ci / baseline" says "ci / baseline"
+run "${d}" legacy
+check "apply updates the ruleset in place" called "^PUT repos/studiobimo/legacy/rulesets/${id} " "${d}"
+check "and does not create another" never_called '^POST ' "${d}"
+
 echo "a private repository on the Free plan"
 d="${work}/private"
 fixture "${d}" secret private

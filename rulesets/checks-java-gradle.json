@@ -23,6 +23,14 @@
         "do_not_enforce_on_create": true,
         "required_status_checks": [
           {
+            "context": "ci / baseline",
+            "integration_id": 15368
+          },
+          {
+            "context": "ci / validate",
+            "integration_id": 15368
+          },
+          {
             "context": "check / check",
             "integration_id": 15368
           }
