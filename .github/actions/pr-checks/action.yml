@@ -20,6 +20,19 @@ inputs:
   head-sha:
     description: SHA of the pull request's head.
     required: true
+  base-ref:
+    description: >-
+      Name of the branch the pull request targets. Only the size exemption for a release
+      promotion reads it. Empty outside a pull_request event, which is why a workflow_dispatch
+      caller passes it.
+    required: false
+    default: ${{ github.base_ref }}
+  head-repo:
+    description: >-
+      Full name (owner/repo) of the repository the pull request's head branch lives in, empty
+      when that fork was deleted. Only the size exemption for a release promotion reads it.
+    required: false
+    default: ${{ github.event.pull_request.head.repo.full_name }}
   max-files:
     description: Most files a single pull request may change.
     required: false
@@ -67,7 +80,7 @@ runs:
         MAX: ${{ inputs.max-files }}
         # A release/v* branch of this repository into the default branch: the pull request
         # promote-release.yml opens. A fork's branch of the same name is measured like any other.
-        PR_PROMOTION: ${{ startsWith(github.head_ref, 'release/v') && github.base_ref == github.event.repository.default_branch && github.event.pull_request.head.repo.full_name == github.repository }}
+        PR_PROMOTION: ${{ startsWith(inputs.branch, 'release/v') && inputs.base-ref == github.event.repository.default_branch && inputs.head-repo == github.repository }}
       run: '${GITHUB_ACTION_PATH}/../../../.devtools/check-pr-size.sh --base "${BASE}" --head "${HEAD}" --max "${MAX}"'
 
     - if: inputs.check-commits == 'true'

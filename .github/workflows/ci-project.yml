@@ -1,0 +1,331 @@
+name: ci-project
+
+# Reusable: the whole pull request pipeline for a project repository, as two jobs.
+#
+#   baseline  Cheap, and runs on EVERY push to a pull request: drafts and the middle of a
+#             stack included. It is never deferred, because it carries the guarantees that
+#             must not wait for review: the secret scan and linters (the repo's lefthook
+#             hooks, gitleaks among them) and the pull request title, branch, size and commits.
+#   validate  The expensive one: the repo's own `make -C .devtools ci`. It is gated at JOB
+#             level, from baseline's outputs, so a deferred run allocates no runner at all.
+#             A step-level skip would still bill the runner's startup and checkout.
+#
+# .github/actions/ci-policy makes the call; README.md ("Baseline and validate") has the table.
+# In short: validate runs on a ready pull request, is deferred on a draft and on the middle of
+# a stack, and is forced to full suites by the `ci:full` label. It narrows its tests to what
+# changed against the base, except into `main`. Every lookup fails open: if the policy cannot
+# decide, validate runs, with the full suite.
+#
+# Call it from a job named `ci`, so the checks are `ci / baseline` and `ci / validate`, the
+# names a ruleset requires. There is no aggregate job on purpose: `ci / validate` is the final
+# validation check itself. The caller's trigger must not filter by `paths:`, or the required
+# checks never report; use the `paths` input, which skips inside the jobs.
+#
+#   on:
+#     pull_request:
+#       types: [opened, synchronize, reopened, ready_for_review]
+#     workflow_dispatch:
+#       inputs:
+#         full: { type: boolean, default: false }
+#   jobs:
+#     ci:
+#       uses: studiobimo/.github/.github/workflows/ci-project.yml@v1
+#       with:
+#         full: ${{ inputs.full || false }}
+#
+# `edited` and `labeled` are deliberately not in that list: ci-pr-events.yml handles them.
+
+on:
+  workflow_call:
+    inputs:
+      max-files:
+        description: Most files a single pull request may change.
+        type: number
+        required: false
+        default: 20
+      check-commits:
+        description: Also require every commit in the branch to be a Conventional Commit.
+        type: boolean
+        required: false
+        default: true
+      paths:
+        description: >-
+          Newline-separated globs with GitHub `paths:` syntax. When set, validate is deferred as
+          not applicable on a pull request that touches none of them. baseline always runs.
+          Empty means validate is always applicable.
+        type: string
+        required: false
+        default: ''
+      integration-branches:
+        description: >-
+          Newline-separated branches that pull requests are stacked from. A pull request into
+          one is the bottom of a stack, never the middle, so it is never deferred for that.
+        type: string
+        required: false
+        default: |-
+          main
+          develop
+      full-branches:
+        description: Newline-separated branches whose pull requests run the full suites.
+        type: string
+        required: false
+        default: main
+      full-label:
+        description: The pull request label that forces validate to run, with full suites.
+        type: string
+        required: false
+        default: ci:full
+      full:
+        description: >-
+          Force validate to run the full suites. Wire the caller's workflow_dispatch `full`
+          input here.
+        type: boolean
+        required: false
+        default: false
+      hook:
+        description: The lefthook hook baseline runs.
+        type: string
+        required: false
+        default: pre-commit
+      exclude:
+        description: >-
+          Comma-separated lefthook job names or tags to skip in baseline, passed as
+          LEFTHOOK_EXCLUDE. Use it for jobs that only validate covers.
+        type: string
+        required: false
+        default: ''
+      mise-version:
+        description: mise release to install.
+        type: string
+        required: false
+        default: '2026.10.0'
+      command:
+        description: >-
+          What validate runs. It gets AFFECTED_BASE (`origin/<base>`, or empty for the full
+          suite) and CI_FULL (`true` or `false`) in its environment.
+        type: string
+        required: false
+        default: make -C .devtools ci
+      timeout-minutes:
+        description: Validate's timeout. Tools are downloaded on a cold cache.
+        type: number
+        required: false
+        default: 20
+      cache-path:
+        description: >-
+          Newline-separated paths validate caches, in `actions/cache` syntax. Empty, the default,
+          means no caching. The cache is restored on every run and saved only by a push to an
+          integration branch; see README.md ("Caching").
+        type: string
+        required: false
+        default: ''
+      cache-key-files:
+        description: >-
+          Newline-separated globs hashed into the cache key, e.g. `pnpm-lock.yaml`. Empty falls
+          back to `mise.lock`, then to a fixed key, which a push never refreshes once saved.
+        type: string
+        required: false
+        default: ''
+      runs-on:
+        description: Runner label for validate.
+        type: string
+        required: false
+        default: ubuntu-latest
+    outputs:
+      validate:
+        description: "'true' when validate ran, 'false' when it was deferred or not applicable."
+        value: ${{ jobs.baseline.outputs.validate }}
+      affected-base:
+        description: The base branch validate narrowed its tests against; empty for the full suite.
+        value: ${{ jobs.baseline.outputs.affected-base }}
+
+permissions: {}
+
+jobs:
+  baseline:
+    # Part of the required check name `ci / baseline`; renaming it strands open pull requests.
+    name: baseline
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+      pull-requests: read
+    outputs:
+      validate: ${{ steps.policy.outputs.validate }}
+      affected-base: ${{ steps.policy.outputs.affected-base }}
+      reason: ${{ steps.policy.outputs.reason }}
+    # Pushing again to a pull request supersedes the run in flight, so it is cancelled rather
+    # than billed to the end. Only pull requests cancel: a push to the default branch, a
+    # merge group and a schedule always finish. `github.workflow` is the caller's name, and
+    # the library suffix keeps this group distinct from any the caller declares itself.
+    concurrency:
+      group: ci-project-baseline-${{ github.workflow }}-${{ github.ref }}
+      cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+    steps:
+      # Decides now whether validate runs, so the job below can be skipped before it gets a
+      # runner. Needs no checkout: it only reads the pulls and compare APIs.
+      - name: Decide whether validate runs
+        id: policy
+        uses: $/.github/actions/ci-policy
+        with:
+          paths: ${{ inputs.paths }}
+          integration-branches: ${{ inputs.integration-branches }}
+          full-branches: ${{ inputs.full-branches }}
+          full-label: ${{ inputs.full-label }}
+          full: ${{ inputs.full }}
+
+      # The reason goes through the environment, never inline in `run:`: it can carry a
+      # branch name, which is the pull request author's to choose.
+      - name: Report the decision
+        env:
+          REASON: ${{ steps.policy.outputs.reason }}
+        run: |
+          {
+            echo '### Validate policy'
+            echo
+            echo "${REASON}"
+          } >> "${GITHUB_STEP_SUMMARY}"
+
+      - name: Check out the pull request
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          # Both sides of the size and commit comparisons have to be present.
+          fetch-depth: 0
+          persist-credentials: false
+
+      # The pull request comes from the policy step rather than the event, so a
+      # workflow_dispatch run on a branch with an open pull request is checked like one.
+      # The guards keep an empty string away from fromJSON, which would fail the step; an
+      # event with no pull request has nothing to lint. Dependabot's titles and commit bodies
+      # are not ours to shorten, so its pull requests are not linted (ci-pr does the same).
+      - name: Check the pull request
+        if: >-
+          steps.policy.outputs.pull-request != ''
+          && fromJSON(steps.policy.outputs.pull-request).author != 'dependabot[bot]'
+        uses: $/.github/actions/pr-checks
+        with:
+          title: ${{ fromJSON(steps.policy.outputs.pull-request).title }}
+          branch: ${{ fromJSON(steps.policy.outputs.pull-request).head_ref }}
+          author: ${{ fromJSON(steps.policy.outputs.pull-request).author }}
+          base-sha: ${{ fromJSON(steps.policy.outputs.pull-request).base_sha }}
+          head-sha: ${{ fromJSON(steps.policy.outputs.pull-request).head_sha }}
+          base-ref: ${{ fromJSON(steps.policy.outputs.pull-request).base_ref }}
+          head-repo: ${{ fromJSON(steps.policy.outputs.pull-request).head_repo }}
+          max-files: ${{ inputs.max-files }}
+          check-commits: ${{ inputs.check-commits }}
+
+      # Installs mise, then the caller's tools; see ci-lint.yml for why the lockfile matters.
+      - uses: jdx/mise-action@7a4e45a543138629540c9a1616d08632b893e492 # v5.0.1
+        with:
+          version: ${{ inputs.mise-version }}
+
+      - name: Run the hooks
+        env:
+          HOOK: ${{ inputs.hook }}
+          LEFTHOOK_EXCLUDE: ${{ inputs.exclude }}
+        run: mise exec -- lefthook run "${HOOK}" --all-files --no-tty
+
+  validate:
+    # Part of the required check name `ci / validate`. When the job is skipped the check
+    # reports as skipped, which the rulesets accept as passing, and no runner is billed.
+    name: validate
+    needs: baseline
+    if: needs.baseline.outputs.validate == 'true'
+    runs-on: ${{ inputs.runs-on }}
+    timeout-minutes: ${{ inputs.timeout-minutes }}
+    permissions:
+      contents: read
+    concurrency:
+      group: ci-project-validate-${{ github.workflow }}-${{ github.ref }}
+      cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+    steps:
+      - name: Check out the pull request
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          # All history for all branches: the checkout action then leaves every remote branch
+          # as `origin/<name>`, so the base the tests narrow against (`origin/<base>`) is
+          # already there. Fetching it separately would need a token, and the credentials are
+          # not persisted. Shallow would also leave no merge base to diff from.
+          fetch-depth: 0
+          persist-credentials: false
+
+      - uses: jdx/mise-action@7a4e45a543138629540c9a1616d08632b893e492 # v5.0.1
+        with:
+          version: ${{ inputs.mise-version }}
+
+      - name: Report the decision
+        env:
+          REASON: ${{ needs.baseline.outputs.reason }}
+          AFFECTED_BASE: ${{ needs.baseline.outputs.affected-base }}
+        run: |
+          {
+            echo '### Validate policy'
+            echo
+            echo "${REASON}"
+            echo
+            if [ -n "${AFFECTED_BASE}" ]; then
+              echo "Tests narrowed to what changed against \`origin/${AFFECTED_BASE}\`."
+            else
+              echo 'Full suites.'
+            fi
+          } >> "${GITHUB_STEP_SUMMARY}"
+
+      # Only a push to an integration branch may save the cache. A cache saved on a pull request
+      # can be restored by that pull request alone, so saving there piles up copies nobody
+      # reuses and evicts the useful ones (10 GB per repository). A push to an integration
+      # branch seeds what every pull request reads. The list is newline-separated, so the
+      # membership test is done here, from the environment, and exposed as an output.
+      - name: Decide whether this run seeds the cache
+        id: seed
+        if: inputs.cache-path != ''
+        env:
+          EVENT: ${{ github.event_name }}
+          REF_NAME: ${{ github.ref_name }}
+          INTEGRATION_BRANCHES: ${{ inputs.integration-branches }}
+        run: |
+          seed=false
+          if [ "${EVENT}" = push ] && printf '%s\n' "${INTEGRATION_BRANCHES}" | tr -d '\r' | grep -Fxq -- "${REF_NAME}"; then
+            seed=true
+          fi
+          echo "seed=${seed}" >> "${GITHUB_OUTPUT}"
+
+      # `hashFiles` over an empty glob list is empty, so the key falls back to mise.lock and then
+      # to a fixed word, and stays well formed. The prefix fallback restores the nearest cache
+      # when the lockfile changed, which beats starting cold.
+      - name: Restore the cache
+        id: cache
+        if: inputs.cache-path != ''
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ${{ inputs.cache-path }}
+          key: ci-project-${{ runner.os }}-${{ (inputs.cache-key-files != '' && hashFiles(inputs.cache-key-files)) || hashFiles('mise.lock') || 'nofiles' }}
+          restore-keys: |
+            ci-project-${{ runner.os }}-
+
+      # The command comes from the caller's workflow, which is trusted code, but it is still
+      # read from the environment so no expression is spliced into the script.
+      - name: Validate
+        env:
+          COMMAND: ${{ inputs.command }}
+          BASE: ${{ needs.baseline.outputs.affected-base }}
+        run: |
+          if [ -n "${BASE}" ]; then
+            export AFFECTED_BASE="origin/${BASE}"
+            export CI_FULL=false
+          else
+            export AFFECTED_BASE=
+            export CI_FULL=true
+          fi
+          mise exec -- bash -c "${COMMAND}"
+
+      # After the command, so a failed run never saves a half-built cache, and only on a miss of
+      # the exact key: an exact hit would be rejected as already existing.
+      - name: Save the cache
+        if: >-
+          success() && inputs.cache-path != ''
+          && steps.seed.outputs.seed == 'true'
+          && steps.cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ${{ inputs.cache-path }}
+          key: ${{ steps.cache.outputs.cache-primary-key }}

@@ -92,6 +92,11 @@ pulls API; `self-pr-stack` makes the real calls on a pull request here and check
 `node --test .github/actions/ci-policy/ci-policy.test.mjs`, covering every rule of its table in
 order against a replaced `fetch`; `self-ci-policy` makes the real calls on a pull request here.
 Mark that pull request a draft, or stack it, to see the deferred answers.
+`ci-project` and `ci-pr-events` have no test of their own that runs offline: `self-ci-project` and
+`self-pr-events` run them on a pull request here that touches one of their paths. Mark the pull
+request ready, add `ci:full`, retarget it or open a draft to see each branch of the `ci-policy`
+table; the decision is on the job summaries. The job-level `if:` on `validate` and the `fromJSON`
+guards only show their faults on a real run.
 The shell scripts are called two ways — by `ci-pr` with explicit arguments and by the git hooks with none — so
 a change to one has to keep both working. Try the shared hooks end to end from a consumer checkout
 by pointing its `remotes` entry at your branch: `ref: <branch>` with `refetch: true`.

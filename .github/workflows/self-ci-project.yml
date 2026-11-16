@@ -1,0 +1,47 @@
+name: self-ci-project
+
+# Dogfooding caller for ci-project: runs the baseline and validate jobs against this repo, so
+# the ci-policy decision, the job-level gate and the pr-checks wiring meet a real pull request
+# before a consumer pins them. This repo has no Makefile, so validate runs a cheap, real test
+# through `command`.
+#
+# It is not a required check, so a trigger-level `paths:` filter is fine here. It would be
+# wrong in a consumer: the required checks would never report.
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
+    paths:
+      - '.github/workflows/ci-project.yml'
+      - '.github/workflows/ci-pr-events.yml'
+      - '.github/workflows/self-ci-project.yml'
+      - '.github/workflows/self-pr-events.yml'
+      - '.github/actions/ci-policy/**'
+      - '.github/actions/pr-stack/**'
+  workflow_dispatch:
+    inputs:
+      full:
+        description: Run validate with the full suites.
+        type: boolean
+        required: false
+        default: false
+
+permissions: {}
+
+jobs:
+  ci:
+    permissions:
+      contents: read
+      pull-requests: read
+    # `./` rather than `$/`, so actionlint checks the call; .github/zizmor.yml says why.
+    uses: ./.github/workflows/ci-project.yml
+    with:
+      command: node --test .github/actions/pr-stack/pr-stack.test.mjs
+      paths: |
+        .github/workflows/ci-project.yml
+        .github/workflows/ci-pr-events.yml
+        .github/workflows/self-ci-project.yml
+        .github/workflows/self-pr-events.yml
+        .github/actions/ci-policy/**
+        .github/actions/pr-stack/**
+      full: ${{ inputs.full || false }}

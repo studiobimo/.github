@@ -17,6 +17,8 @@ everywhere at once.
 | `.github/workflows/ci-go.yml`             | Go modules, formatting, golangci-lint, race tests, coverage, govulncheck and build |
 | `.github/workflows/ci-workflows.yml`      | actionlint, zizmor and shellcheck over a repo's own workflows                      |
 | `.github/workflows/ci-lint.yml`           | A repo's own lefthook hooks, over the whole tree, with the tools mise pins         |
+| `.github/workflows/ci-project.yml`        | A project's whole PR pipeline: an always-on `baseline` and a gated `validate`      |
+| `.github/workflows/ci-pr-events.yml`      | Companion to `ci-project`: title edits, the `ci:full` label and retargets          |
 | `.github/workflows/ci-gitleaks.yml`       | Secret scan of what a pull request adds                                            |
 | `.github/workflows/ci-template-drift.yml` | Compares a repo with the project template and tracks the difference in one issue   |
 | `.github/workflows/ci-tools-outdated.yml` | Tracks the tools pinned in `mise.toml` that have a newer release in one issue      |
@@ -67,6 +69,114 @@ jobs:
 Empty `paths` is the default and runs every time. Every event other than a pull request always
 runs, so a push to the default branch is never skipped. List every file a job reads, including
 the version files it pins its tools with, or a change to one of them is skipped.
+
+### Baseline and validate
+
+`ci-project.yml` replaces `ci-pr`, `ci-lint` and a project's own CI workflow with two jobs, so a
+pull request has two stable required checks: `ci / baseline` and `ci / validate` (the caller's
+job is named `ci`).
+
+`baseline` is cheap and runs on every push to a pull request, drafts and the middle of a stack
+included. It is never deferred, because it carries the guarantees that cannot wait for review:
+the secret scan and linters run by the repo's lefthook hooks, and the pull request title, branch
+name, size and commits. `validate` runs the project's `make -C .devtools ci`. It is gated on the
+job itself, from `baseline`'s outputs, so a run that is not needed allocates no runner and bills
+nothing. The decision is made by `.github/actions/ci-policy`, first match wins:
+
+- Not a pull request (a push, a schedule, a merge group), or a `workflow_dispatch` with `full`
+  set, or a fork: validate runs, full suites.
+- The `paths` input is set and the pull request touches none of them: not applicable, skipped.
+- The `ci:full` label: validate runs, full suites, whatever else is true.
+- A draft: deferred. It runs when the pull request is marked ready.
+- The middle of a stack of pull requests: deferred. The bottom and the top still run; a pull
+  request into `main` or `develop` (`integration-branches`) is a bottom, never a middle.
+- Into a branch in `full-branches` (default `main`): runs, full suites.
+- Anything else: runs, narrowed to what changed. `AFFECTED_BASE=origin/<base>` is set for the
+  command, and `CI_FULL=false`; a full run sets `CI_FULL=true` and leaves `AFFECTED_BASE` empty.
+
+Every lookup fails open: if the policy cannot decide, validate runs the full suite. The reason
+for the decision is on both jobs' summaries.
+
+#### Caching
+
+`validate` can cache what its command downloads, and does not by default. Set `cache-path` (one
+path per line) and, usually, `cache-key-files` (globs hashed into the key):
+
+```yaml
+jobs:
+  ci:
+    uses: studiobimo/.github/.github/workflows/ci-project.yml@v1
+    with:
+      cache-path: |
+        ~/.local/share/pnpm/store
+        node_modules/.cache
+        ~/.cache/ms-playwright
+      cache-key-files: pnpm-lock.yaml
+```
+
+The key is `ci-project-<os>-<hash of cache-key-files>`; with the input empty it hashes `mise.lock`,
+then falls back to a fixed word, which a push never refreshes. A changed lockfile restores the
+nearest older cache by prefix, then saves a fresh one. Every run restores, before the command, but
+only a push to one of `integration-branches` saves, after the command succeeds and only on a miss
+of the exact key. A cache saved on a pull request can be restored by that pull request alone, so
+saving there piles up copies nobody reuses and evicts useful ones (10 GB per repository); a push
+to an integration branch seeds what every pull request reads. The caller's `ci.yml` therefore
+needs `push: branches: [develop, main]`, its integration branches, or nothing ever seeds the cache.
+
+A known limit: a title edited after CI passed is re-checked by `ci-pr-events`' `title` job, which
+is not a required check, so a ruleset alone does not stop a bad title from merging. The squash
+title is also still editable in the merge box.
+
+`ci-pr-events.yml` is the companion, called from a separate `pr-events.yml` on
+`pull_request: types: [edited, labeled]`. It re-runs the title check when the title changes, and
+dispatches the CI workflow with `full=true` when `ci:full` is added, or `full=false` when the
+pull request is retargeted (narrowing is against the base). It is a separate workflow because a
+run that skips jobs posts skipped check runs under the same names on the same commit, and a
+skipped `ci / validate` could mask an earlier failure of the real one. The dispatch is the one
+event a `GITHUB_TOKEN` may trigger, so the caller's `ci.yml` must declare
+`workflow_dispatch: inputs: full: {type: boolean}` and pass it on. Do not filter `ci.yml`'s
+trigger with `paths:`; the required checks would never report. Use the `paths` input.
+
+```yaml
+# .github/workflows/ci.yml
+name: ci
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
+  push:
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      full:
+        type: boolean
+        default: false
+permissions: {}
+jobs:
+  ci:
+    permissions:
+      contents: read
+      pull-requests: read
+    uses: studiobimo/.github/.github/workflows/ci-project.yml@v1
+    with:
+      full: ${{ inputs.full || false }}
+```
+
+```yaml
+# .github/workflows/pr-events.yml
+name: pr-events
+on:
+  pull_request:
+    types: [edited, labeled]
+permissions: {}
+jobs:
+  events:
+    permissions:
+      contents: read
+      actions: write
+    uses: studiobimo/.github/.github/workflows/ci-pr-events.yml@v1
+    with:
+      workflow: ci.yml
+```
 
 ## Composite actions
 
