@@ -399,18 +399,18 @@ Every repository carries the same settings and the same branch rules, defined he
 | `default-branch`             | the default branch           | Pull request required, squash only, linear history, resolved threads, no force push or deletion |
 | `release-tags`               | `v*.*.*` and `<name>-v*.*.*` | A release tag cannot be moved or deleted. The floating `v1` is not matched                      |
 | `checks-project`             | the default branch           | Requires `ci / baseline` and `ci / validate`; also covers `develop`                             |
-| `checks-java-gradle`         | the default branch           | Requires `ci / baseline` and `ci / validate` (the Gradle `check` runs inside validate)          |
+| `checks-java-gradle`         | the default branch           | Requires `ci / baseline`, `ci / validate` and `check / check`, the Gradle build                 |
 | `checks-vite-react-tanstack` | the default branch           | Requires `ci / baseline` and `ci / validate` (build, types, lint, tests, bundle budget, audit)  |
 | `checks-dotgithub`           | the default branch           | Requires this repo's own `self-*` checks                                                        |
 
 Rulesets stack, so a repository takes the pieces that fit it. Required checks are separate from
 `default-branch` so a repository without CI can take the branch rules alone.
 
-`checks-java-gradle` and `checks-vite-react-tanstack` once required the stack's own check
-(`check / check`, `check`). Every project now reports `ci / baseline` and `ci / validate`, so they
-require those, as `checks-project` does. They stay as files because the script never deletes a
-ruleset: removing the files would leave the old rulesets on repositories, requiring checks that
-never report.
+`checks-vite-react-tanstack` once required the profile's own `check`, which is now `ci / validate`.
+`checks-java-gradle` keeps `check / check`: `ci-project`'s validate installs no JDK and uploads no
+artifacts, so the Gradle build still runs in `ci-java-gradle`, beside `ci / baseline` and
+`ci / validate`. Both stay as files because the script never deletes a ruleset: removing them would
+leave the old rulesets on repositories, requiring checks that never report.
 
 A `checks-<profile>` ruleset follows the project-template profiles: a repository whose
 `.template-profiles` names `java-gradle` gets `checks-java-gradle` on top of its listed

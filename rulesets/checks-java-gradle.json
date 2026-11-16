@@ -29,6 +29,10 @@
           {
             "context": "ci / validate",
             "integration_id": 15368
+          },
+          {
+            "context": "check / check",
+            "integration_id": 15368
           }
         ]
       }
