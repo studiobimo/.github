@@ -22,7 +22,10 @@ name: ci-repo-health
 # baseline starts from it.
 #
 # The pull request's code is only ever analysed, never executed: dependencies install with
-# lifecycle scripts off, and the job reads no secret.
+# lifecycle scripts off, and the caller passes no secret. When a tracked .npmrc names
+# npm.pkg.github.com, the run's own token (`packages: read`) is in the install environment so
+# pnpm can fetch private `@studiobimo/*` packages; no lifecycle script or analysed code runs
+# with it during the install. Only pnpm lockfiles are covered: npm reads no such variable.
 #
 #   on:
 #     pull_request:
@@ -34,6 +37,8 @@ name: ci-repo-health
 #       permissions:
 #         contents: read
 #         issues: read
+#         # Always requested here, so EVERY caller must grant it or the run fails to start.
+#         packages: read
 #       uses: studiobimo/.github/.github/workflows/ci-repo-health.yml@v1
 #       with:
 #         # A label only reviewers can set: a config change can hide findings.
@@ -99,6 +104,9 @@ jobs:
       contents: read
       # Whether each baselined finding's issue is open.
       issues: read
+      # Requested even when no .npmrc uses GitHub Packages: permissions cannot be conditional.
+      # It only matters to a repo that does, but it must be grantable.
+      packages: read
     # Pushing again to a pull request supersedes the run in flight, so it is cancelled rather
     # than billed to the end. Only pull requests cancel: a push to the default branch, a
     # merge group and a schedule always finish. `github.workflow` is the caller's name, and
@@ -112,6 +120,22 @@ jobs:
         with:
           fetch-depth: 2
           persist-credentials: false
+
+      # pnpm reads `pnpm_config__auth`, a JSON map of registry to credentials, from the
+      # environment, so the consumer's .npmrc needs no `${NPM_TOKEN}` line. It is set only when
+      # installing and a tracked .npmrc (root or any workspace package) names npm.pkg.github.com.
+      # GITHUB_ENV reaches every later pnpm call, including the installs in the base checkout
+      # the ratchet scans. `npm ci` (package-lock.json) does not read it: only pnpm is covered.
+      # The token reaches this step through `env:`, never spliced into the script.
+      - name: Authenticate to GitHub Packages
+        if: ${{ inputs.install-dependencies }}
+        env:
+          TOKEN: ${{ github.token }}
+        run: |
+          if git grep -qF 'npm.pkg.github.com' -- '.npmrc' '*.npmrc'; then
+            echo "pnpm_config__auth={\"https://npm.pkg.github.com/\":{\"@\":{\"authToken\":\"${TOKEN}\"}}}" >> "${GITHUB_ENV}"
+            echo 'A tracked .npmrc uses npm.pkg.github.com: authenticated with the run token.'
+          fi
 
       - uses: $/.github/actions/repo-health
         with:

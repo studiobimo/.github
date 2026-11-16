@@ -22,6 +22,8 @@ jobs:
     permissions:
       contents: read
       issues: read
+      # ci-repo-health always requests this; without it here the run would not start.
+      packages: read
     uses: ./.github/workflows/ci-repo-health.yml
     with:
       allow-config-change: ${{ contains(github.event.pull_request.labels.*.name, 'repo-health-config-change') }}

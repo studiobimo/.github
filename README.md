@@ -119,8 +119,13 @@ jobs:
 > **Every caller must grant `packages: read`**, whether or not it uses GitHub Packages. `validate`
 > always requests it (job permissions cannot be conditional), and a reusable job cannot get a
 > permission its caller did not grant, so a caller without it fails to start. project-template
-> v0.14.1 grants it. Release this only once every consumer is on that version. The `baseline`
+> v0.14.2 grants it. Release this only once every consumer is on that version. The `baseline`
 > job does not get it: its hooks run mise-pinned tools, not installed packages.
+
+[`ci-repo-health`](#repo-health) does the same for its dependency install (`install-dependencies`,
+on by default), and the same rule holds: every repo-health caller must grant `packages: read`
+too, or its run fails to start. Only pnpm lockfiles are covered; `npm ci` does not read
+`pnpm_config__auth`.
 
 #### Caching
 
@@ -692,6 +697,7 @@ jobs:
     permissions:
       contents: read
       issues: read
+      packages: read
     uses: studiobimo/.github/.github/workflows/ci-repo-health.yml@v1
     with:
       allow-config-change: ${{ contains(github.event.pull_request.labels.*.name, 'repo-health-config-change') }}

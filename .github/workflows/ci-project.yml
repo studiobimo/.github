@@ -39,7 +39,7 @@ name: ci-project
 # with the run's own token, so its command can install private `@studiobimo/*` npm packages. No
 # caller input is involved. validate always asks for `packages: read`, because job permissions cannot be conditional, and a
 # reusable job cannot be granted more than its caller gave. EVERY caller must therefore grant
-# `packages: read` on its `ci` job (project-template v0.14.1 does), or the run fails to start.
+# `packages: read` on its `ci` job (project-template v0.14.2 does), or the run fails to start.
 
 on:
   workflow_call:
