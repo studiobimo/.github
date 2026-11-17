@@ -97,6 +97,36 @@ nothing. The decision is made by `.github/actions/ci-policy`, first match wins:
 Every lookup fails open: if the policy cannot decide, validate runs the full suite. The reason
 for the decision is on both jobs' summaries.
 
+#### GitHub Packages
+
+When a tracked `.npmrc` (at the root or in any workspace package) names `npm.pkg.github.com`,
+`validate` exports `pnpm_config__auth`, which pnpm reads as credentials for that registry, built
+from the run's `github.token`, so its command can install private packages. Nothing to configure:
+a repo whose `.npmrc` only has the scope line, e.g.
+`@studiobimo:registry=https://npm.pkg.github.com`, is detected, and a repo that does not use
+GitHub Packages never has the token in its command's environment.
+
+```yaml
+jobs:
+  ci:
+    permissions:
+      contents: read
+      pull-requests: read
+      packages: read
+    uses: studiobimo/.github/.github/workflows/ci-project.yml@v1
+```
+
+> **Every caller must grant `packages: read`**, whether or not it uses GitHub Packages. `validate`
+> always requests it (job permissions cannot be conditional), and a reusable job cannot get a
+> permission its caller did not grant, so a caller without it fails to start. project-template
+> v0.14.2 grants it. Release this only once every consumer is on that version. The `baseline`
+> job does not get it: its hooks run mise-pinned tools, not installed packages.
+
+[`ci-repo-health`](#repo-health) does the same for its dependency install (`install-dependencies`,
+on by default), and the same rule holds: every repo-health caller must grant `packages: read`
+too, or its run fails to start. Only pnpm lockfiles are covered; `npm ci` does not read
+`pnpm_config__auth`.
+
 #### Caching
 
 `validate` can cache what its command downloads, and does not by default. Set `cache-path` (one
@@ -667,6 +697,7 @@ jobs:
     permissions:
       contents: read
       issues: read
+      packages: read
     uses: studiobimo/.github/.github/workflows/ci-repo-health.yml@v1
     with:
       allow-config-change: ${{ contains(github.event.pull_request.labels.*.name, 'repo-health-config-change') }}

@@ -34,6 +34,12 @@ name: ci-project
 #         full: ${{ inputs.full || false }}
 #
 # `edited` and `labeled` are deliberately not in that list: ci-pr-events.yml handles them.
+#
+# GitHub Packages: when a tracked .npmrc names npm.pkg.github.com, validate authenticates to it
+# with the run's own token, so its command can install private `@studiobimo/*` npm packages. No
+# caller input is involved. validate always asks for `packages: read`, because job permissions cannot be conditional, and a
+# reusable job cannot be granted more than its caller gave. EVERY caller must therefore grant
+# `packages: read` on its `ci` job (project-template v0.14.2 does), or the run fails to start.
 
 on:
   workflow_call:
@@ -233,8 +239,11 @@ jobs:
     if: needs.baseline.outputs.validate == 'true'
     runs-on: ${{ inputs.runs-on }}
     timeout-minutes: ${{ inputs.timeout-minutes }}
+    # `packages: read` is requested even when no .npmrc uses GitHub Packages: permissions cannot
+    # be conditional. It only matters to a repo that does, but it must be grantable.
     permissions:
       contents: read
+      packages: read
     concurrency:
       group: ci-project-validate-${{ github.workflow }}-${{ github.ref }}
       cancel-in-progress: ${{ github.event_name == 'pull_request' }}
@@ -301,6 +310,21 @@ jobs:
           key: ci-project-${{ runner.os }}-${{ (inputs.cache-key-files != '' && hashFiles(inputs.cache-key-files)) || hashFiles('mise.lock') || 'nofiles' }}
           restore-keys: |
             ci-project-${{ runner.os }}-
+
+      # pnpm reads `pnpm_config__auth`, a JSON map of registry to credentials, from the
+      # environment, so the consumer's .npmrc needs no `${NPM_TOKEN}` line. It is set only when a
+      # tracked .npmrc (root or any workspace package) names npm.pkg.github.com, so a repo that
+      # does not use GitHub Packages never has the token in its command's environment. The token
+      # is already masked in the log; it reaches this step through `env:`, never spliced into the
+      # script. Exported with GITHUB_ENV so only the later steps see it.
+      - name: Authenticate to GitHub Packages
+        env:
+          TOKEN: ${{ github.token }}
+        run: |
+          if git grep -qF 'npm.pkg.github.com' -- '.npmrc' '*.npmrc'; then
+            echo "pnpm_config__auth={\"https://npm.pkg.github.com/\":{\"@\":{\"authToken\":\"${TOKEN}\"}}}" >> "${GITHUB_ENV}"
+            echo 'A tracked .npmrc uses npm.pkg.github.com: authenticated with the run token.'
+          fi
 
       # The command comes from the caller's workflow, which is trusted code, but it is still
       # read from the environment so no expression is spliced into the script.
