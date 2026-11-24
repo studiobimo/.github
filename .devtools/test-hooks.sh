@@ -119,6 +119,15 @@ expect pass "prefers origin for a worked-out default branch" "${size}"
 expect fail "keeps a named base local" "${size}" --base main
 git update-ref -d refs/remotes/origin/main
 
+# gh stands in for GitHub: `pr view` reports GH_PR_BASE as the open pull request's base.
+mkdir "${work}/bin-pr"
+# shellcheck disable=SC2016  # the stub expands it, not this script
+printf '#!/bin/sh\n[ "$1 $2" = "pr view" ] && [ -n "${GH_PR_BASE:-}" ] && echo "${GH_PR_BASE}" && exit 0\nexit 1\n' >"${work}/bin-pr/gh"
+chmod +x "${work}/bin-pr/gh"
+expect pass "measures against the open pull request's base" env PATH="${work}/bin-pr:${PATH}" GH_PR_BASE=feat/small "${size}"
+expect fail "falls back to the default branch with no open pull request" env PATH="${work}/bin-pr:${PATH}" "${size}"
+expect fail "prefers PR_BASE over the open pull request's base" env PATH="${work}/bin-pr:${PATH}" GH_PR_BASE=feat/small PR_BASE=main "${size}"
+
 expect fail "fails when a named base is missing" "${size}" --base no-such-branch
 git branch --quiet -m main trunk
 expect pass "skips when a guessed base is missing" "${size}"
