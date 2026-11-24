@@ -116,7 +116,8 @@ expect pass "measures a layer against --base" "${size}" --base feat/small
 # only the one file from feat/big is this branch's own.
 git update-ref refs/remotes/origin/main feat/small
 expect pass "prefers origin for a worked-out default branch" "${size}"
-expect fail "keeps a named base local" "${size}" --base main
+expect pass "prefers origin for a named base" "${size}" --base main
+expect pass "prefers origin for PR_BASE" env PR_BASE=main "${size}"
 git update-ref -d refs/remotes/origin/main
 
 # gh stands in for GitHub: `pr view` reports GH_PR_BASE as the open pull request's base.
@@ -127,6 +128,10 @@ chmod +x "${work}/bin-pr/gh"
 expect pass "measures against the open pull request's base" env PATH="${work}/bin-pr:${PATH}" GH_PR_BASE=feat/small "${size}"
 expect fail "falls back to the default branch with no open pull request" env PATH="${work}/bin-pr:${PATH}" "${size}"
 expect fail "prefers PR_BASE over the open pull request's base" env PATH="${work}/bin-pr:${PATH}" GH_PR_BASE=feat/small PR_BASE=main "${size}"
+
+git update-ref refs/remotes/origin/main feat/small
+expect pass "prefers origin for the open pull request's base" env PATH="${work}/bin-pr:${PATH}" GH_PR_BASE=main "${size}"
+git update-ref -d refs/remotes/origin/main
 
 expect fail "fails when a named base is missing" "${size}" --base no-such-branch
 git branch --quiet -m main trunk

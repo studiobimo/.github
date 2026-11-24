@@ -6,8 +6,8 @@
 # Two callers, one script. ci-pr passes both ends of the pull request. The
 # `pr-size` lefthook job passes nothing, so the base is worked out here:
 # $PR_BASE, then the branch below this one in a gh stack, then the base of the
-# branch's open pull request, then the remote's default branch. A default branch that was worked out is read from origin, since
-# the local copy only moves on a pull.
+# branch's open pull request, then the remote's default branch. Every base but a stack's parent
+# is read from origin, since the local copy only moves on a pull.
 #
 # Either way a stacked branch is measured against the layer below it, so each
 # layer is counted on its own rather than accumulating the whole stack. On a
@@ -95,25 +95,27 @@ resolve_remote_first() {
 # A base nobody named is a guess, and a wrong guess must not block a push: CI
 # measures the real pull request. A base somebody named has to resolve.
 guessed=false
-default=""
+stacked=false
 if [[ -z "${base}" ]]; then
     guessed=true
     default="$(default_branch)"
     [[ -n "${default}" ]] || default="main"
     base="$(stack_parent)"
+    [[ -z "${base}" ]] || stacked=true
     [[ -n "${base}" ]] || base="$(pr_base)"
     [[ -n "${base}" ]] || base="${default}"
 fi
 
-# Nobody commits to the default branch locally, so the local copy is as old as
-# the last pull. A branch cut from a fresher origin then counts every file the
-# default branch gained in between as its own. origin's copy is what the pull
-# request is measured against, so it wins here; a stack's parent and a named
-# base stay local-first.
-if [[ "${guessed}" == true && "${base}" == "${default}" ]]; then
-    base_ref="$(resolve_remote_first "${base}")"
-else
+# Nobody commits to the default branch, or to develop, locally, so the local
+# copy is as old as the last pull. A branch cut from a fresher origin then counts
+# every file the base gained in between as its own. origin's copy is what the
+# pull request is measured against, so it wins for every base, named or
+# guessed. Only a stack's parent stays local-first: it can be a branch that was
+# never pushed.
+if [[ "${stacked}" == true ]]; then
     base_ref="$(resolve "${base}")"
+else
+    base_ref="$(resolve_remote_first "${base}")"
 fi
 head_resolved="$(resolve "${head_ref}")"
 
