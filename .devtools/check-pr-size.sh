@@ -5,8 +5,8 @@
 #
 # Two callers, one script. ci-pr passes both ends of the pull request. The
 # `pr-size` lefthook job passes nothing, so the base is worked out here:
-# $PR_BASE, then the branch below this one in a gh stack, then the remote's
-# default branch. A default branch that was worked out is read from origin, since
+# $PR_BASE, then the branch below this one in a gh stack, then the base of the
+# branch's open pull request, then the remote's default branch. A default branch that was worked out is read from origin, since
 # the local copy only moves on a pull.
 #
 # Either way a stacked branch is measured against the layer below it, so each
@@ -63,6 +63,14 @@ stack_parent() {
         else .branches[$i - 1].name end' 2>/dev/null || true
 }
 
+# A pull request that targets something other than the default branch (develop,
+# a release branch) has to be measured against that, or every fix-up push to it
+# counts the unreleased work the two branches differ by.
+pr_base() {
+    command -v gh >/dev/null 2>&1 || return 0
+    gh pr view --json baseRefName --jq .baseRefName 2>/dev/null || true
+}
+
 default_branch() {
     git symbolic-ref --quiet --short refs/remotes/origin/HEAD 2>/dev/null | sed 's#^origin/##' || true
 }
@@ -93,6 +101,7 @@ if [[ -z "${base}" ]]; then
     default="$(default_branch)"
     [[ -n "${default}" ]] || default="main"
     base="$(stack_parent)"
+    [[ -n "${base}" ]] || base="$(pr_base)"
     [[ -n "${base}" ]] || base="${default}"
 fi
 
